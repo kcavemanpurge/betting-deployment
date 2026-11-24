@@ -3,139 +3,573 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Sports & Live Odds — Sovereign Betting Deployment</title>
+  <title>Sports &amp; Live Events</title>
   <style>
-    body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0b101b; color: #eef2ff; margin: 0; padding: 20px; }
-    nav { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
-    nav a, nav button { background: #162033; color: #fff; border: 1px solid #2b3b5a; padding: 8px 14px; border-radius: 6px; text-decoration: none; cursor: pointer; font-size: 13px; font-weight: 600; }
-    nav a:hover, nav a.active { background: #1e293b; border-color: #38bdf8; color: #38bdf8; }
-    .header-box { background: #111827; border: 1px solid #1f2937; padding: 16px; border-radius: 8px; margin-bottom: 20px; }
-    .controls { display: flex; gap: 10px; align-items: center; margin-bottom: 18px; flex-wrap: wrap; }
-    select, button.primary { background: #1d4ed8; color: #fff; border: none; padding: 9px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600; }
-    button { background: #1f2937; color: #e2e8f0; border: 1px solid #374151; padding: 9px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; }
-    button:hover { background: #374151; }
-    .events-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; margin-top: 16px; }
-    .card { background: #111827; border: 1px solid #1f2937; border-radius: 8px; padding: 16px; }
-    .card-header { font-size: 12px; color: #94a3b8; display: flex; justify-content: space-between; margin-bottom: 8px; }
-    .match-teams { font-size: 15px; font-weight: 700; color: #f8fafc; margin-bottom: 12px; }
-    .odds-row { display: flex; gap: 8px; }
-    .odd-btn { flex: 1; background: #1e293b; border: 1px solid #334155; padding: 8px 4px; border-radius: 6px; text-align: center; cursor: pointer; }
-    .odd-btn:hover { border-color: #38bdf8; background: #0f172a; }
-    .odd-label { font-size: 11px; color: #94a3b8; display: block; }
-    .odd-value { font-size: 14px; font-weight: 700; color: #38bdf8; }
-    code { background: #1e293b; color: #38bdf8; padding: 3px 8px; border-radius: 4px; font-size: 13px; }
-    .status-msg { margin-top: 12px; padding: 10px; border-radius: 6px; background: #162033; font-size: 12px; font-family: monospace; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0b101b;
+      color: #eef2ff;
+      margin: 0;
+      padding: 20px;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    nav {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+    nav a {
+      background: #162033;
+      color: #eef2ff;
+      border: 1px solid #2b3b5a;
+      padding: 8px 14px;
+      border-radius: 6px;
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    nav a:hover, nav a.active {
+      background: #1e293b;
+      border-color: #38bdf8;
+      color: #38bdf8;
+    }
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      justify-content: space-between;
+      background: #111827;
+      border: 1px solid #1f2937;
+      padding: 14px 16px;
+      border-radius: 8px;
+      margin-bottom: 18px;
+    }
+    .tabs, .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+    button.tab, button.action, select {
+      background: #162033;
+      color: #eef2ff;
+      border: 1px solid #2b3b5a;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button.tab.active {
+      background: #0284c7;
+      border-color: #38bdf8;
+      color: #ffffff;
+    }
+    button.action.primary {
+      background: #059669;
+      border-color: #10b981;
+      color: #ffffff;
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 2fr) minmax(300px, 1fr);
+      gap: 20px;
+      align-items: start;
+    }
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; }
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 14px;
+    }
+    .card {
+      background: #111827;
+      border: 1px solid #1f2937;
+      border-radius: 8px;
+      padding: 14px;
+      cursor: pointer;
+    }
+    .card.selected {
+      border-color: #38bdf8;
+    }
+    .match-title {
+      font-size: 15px;
+      font-weight: 700;
+      margin: 8px 0 10px;
+    }
+    .meta {
+      font-size: 11px;
+      color: #94a3b8;
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .odds-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+    }
+    .odd-btn {
+      background: #162033;
+      border: 1px solid #2b3b5a;
+      color: #38bdf8;
+      border-radius: 6px;
+      padding: 8px 6px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .odd-btn:hover:not(:disabled) {
+      border-color: #38bdf8;
+      background: #1e293b;
+    }
+    .odd-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    .panel {
+      background: #111827;
+      border: 1px solid #1f2937;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    .market-group {
+      margin-bottom: 14px;
+    }
+    .market-label {
+      font-size: 12px;
+      font-weight: 700;
+      color: #cbd5e1;
+      margin-bottom: 6px;
+    }
+    .market-options {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 8px;
+    }
+    .leg-item {
+      background: #162033;
+      border: 1px solid #26354d;
+      border-radius: 6px;
+      padding: 10px;
+      margin-bottom: 8px;
+      font-size: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+    input[type="number"] {
+      width: 100%;
+      background: #162033;
+      border: 1px solid #2b3b5a;
+      color: #ffffff;
+      padding: 8px 10px;
+      border-radius: 6px;
+      font-size: 13px;
+      margin: 6px 0 12px;
+    }
+    code {
+      background: #1e293b;
+      color: #38bdf8;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+    footer {
+      margin-top: auto;
+      padding-top: 24px;
+      border-top: 1px solid #1f2937;
+      font-size: 12px;
+      color: #94a3b8;
+    }
   </style>
 </head>
 <body>
-  <nav>
+  <nav aria-label="Primary Navigation">
     <a href="/">Home</a>
     <a href="/aviator.html">Aviator</a>
-    <a href="/sports.html" class="active">Sports & Odds</a>
-    <a href="/top5-football.html">Top 5 Football (26/27)</a>
-    <a href="/account.html">Profile & Withdrawals</a>
+    <a href="/sports.html" class="active">Sports &amp; Live Events</a>
+    <a href="/account.html">Account &amp; Withdrawals</a>
   </nav>
 
-  <div class="header-box">
-    <h1 style="margin:0 0 8px 0; font-size: 22px;">Live Sports & Verified Market Odds</h1>
-    <p style="margin: 0; color: #94a3b8;">
-      Netlify Odds Settlement Wallet: <code id="wallet-display">4AB1u2f16V1Vno2fzN4GTN41MTSWjW4E3ViN4bg3qA4m</code>
-    </p>
+  <div class="toolbar">
+    <div class="tabs">
+      <button type="button" class="tab active" id="tab-hub">Top 10 Hub</button>
+      <button type="button" class="tab" id="tab-sports">Sports &amp; Categories</button>
+      <button type="button" class="tab" id="tab-live">Live Events</button>
+    </div>
+    <div class="controls">
+      <select id="sport-select" aria-label="Sport or League">
+        <option value="soccer_epl">Football — Premier League</option>
+        <option value="soccer_spain_la_liga">Football — La Liga</option>
+        <option value="soccer_italy_serie_a">Football — Serie A</option>
+        <option value="soccer_germany_bundesliga">Football — Bundesliga</option>
+        <option value="soccer_france_ligue_one">Football — Ligue 1</option>
+        <option value="basketball_nba">Basketball — NBA</option>
+        <option value="americanfootball_nfl">American Football — NFL</option>
+      </select>
+      <button type="button" class="action" id="refresh-btn">Refresh</button>
+    </div>
   </div>
 
-  <div class="controls">
-    <label for="sport-select" style="font-size: 14px; font-weight: 600;">Sport / League:</label>
-    <select id="sport-select">
-      <option value="soccer_epl">Premier League (EPL)</option>
-      <option value="soccer_spain_la_liga">La Liga (Spain)</option>
-      <option value="soccer_italy_serie_a">Serie A (Italy)</option>
-      <option value="soccer_germany_bundesliga">Bundesliga (Germany)</option>
-      <option value="soccer_france_ligue_one">Ligue 1 (France)</option>
-      <option value="soccer_uefa_champs_league">UEFA Champions League</option>
-    </select>
-    <button class="primary" id="fetch-odds-btn">Refresh Live Odds</button>
+  <div class="meta" style="margin-bottom:14px;">
+    <div>Settlement Wallet: <code id="wallet-ref">4AB1u2f16V1Vno2fzN4GTN41MTSWjW4E3ViN4bg3qA4m</code></div>
+    <div id="sync-status">Ready</div>
   </div>
 
-  <div id="status" class="status-msg">Loading live odds from serverless endpoint (/.netlify/functions/live-odds)...</div>
+  <div class="layout">
+    <div>
+      <div class="grid" id="events-grid"></div>
+      <div class="panel" id="market-inspector" style="margin-top:16px; display:none;"></div>
+    </div>
 
-  <div class="events-grid" id="events-grid"></div>
+    <aside class="panel" id="slip-panel">
+      <div style="display:flex; gap:8px; margin-bottom:12px;">
+        <button type="button" class="tab active" id="view-slip-btn" style="flex:1;">Slip (<span id="slip-count">0</span>)</button>
+        <button type="button" class="tab" id="view-history-btn" style="flex:1;">History (<span id="history-count">0</span>)</button>
+      </div>
+      <div id="side-content"></div>
+    </aside>
+  </div>
+
+  <footer>
+    Monthly $100 disbursement applies on the scheduled monthly cycle — wait for monthly $100 disbursement.
+  </footer>
 
   <script>
-    const sportSelect = document.getElementById('sport-select');
-    const fetchBtn = document.getElementById('fetch-odds-btn');
-    const statusEl = document.getElementById('status');
-    const eventsGrid = document.getElementById('events-grid');
+    const WALLET_ANCHOR = '4AB1u2f16V1Vno2fzN4GTN41MTSWjW4E3ViN4bg3qA4m';
+    const STORAGE_KEY = 'sovereign_standalone_sports_v1';
 
-    async function loadOdds() {
-      const sport = sportSelect.value;
-      statusEl.textContent = `Fetching live odds for ${sport} from Netlify Functions...`;
-      eventsGrid.innerHTML = '';
+    let viewMode = 'hub';
+    let sideMode = 'slip';
+    let topPicks = [];
+    let allEvents = [];
+    let liveEvents = [];
+    let selectedEvent = null;
 
+    function loadPersisted() {
       try {
-        const res = await fetch(`/.netlify/functions/live-odds?sport=${encodeURIComponent(sport)}`);
-        const data = await res.json();
-
-        if (!res.ok && !data.events) {
-          statusEl.textContent = `Error: ${data.error || 'Failed to fetch odds'}`;
-          return;
-        }
-
-        const events = data.events || [];
-        statusEl.textContent = `Loaded ${events.length} fixture(s) for ${sport}. Wallet: ${data.oddsWallet} [Fetched: ${new Date(data.fetchedAt).toLocaleTimeString()}]`;
-
-        if (events.length === 0) {
-          eventsGrid.innerHTML = '<div style="grid-column: 1/-1; padding: 20px; background: #111827; border-radius: 8px;">No active fixtures currently open for betting in this league. Check back soon.</div>';
-          return;
-        }
-
-        eventsGrid.innerHTML = events.slice(0, 12).map(ev => {
-          let homePrice = '2.10', drawPrice = '3.20', awayPrice = '3.50';
-          if (ev.bookmakers && ev.bookmakers.length > 0) {
-            const h2h = ev.bookmakers[0].markets?.find(m => m.key === 'h2h');
-            if (h2h && h2h.outcomes) {
-              const hOut = h2h.outcomes.find(o => o.name === ev.home_team);
-              const aOut = h2h.outcomes.find(o => o.name === ev.away_team);
-              const dOut = h2h.outcomes.find(o => o.name.toLowerCase().includes('draw'));
-              if (hOut) homePrice = hOut.price;
-              if (dOut) drawPrice = dOut.price;
-              if (aOut) awayPrice = aOut.price;
-            }
-          }
-
-          const commence = ev.commence_time ? new Date(ev.commence_time).toLocaleString() : 'Upcoming';
-
-          return `
-            <div class="card">
-              <div class="card-header">
-                <span>${ev.sport_title || 'SOCCER'}</span>
-                <span>${commence}</span>
-              </div>
-              <div class="match-teams">${ev.home_team} vs ${ev.away_team}</div>
-              <div class="odds-row">
-                <button class="odd-btn" onclick="alert('Bet slip logged for 1 (Home Win: ${ev.home_team}) @ ${homePrice} via Wallet ${data.oddsWallet}')">
-                  <span class="odd-label">1 (${ev.home_team.slice(0, 8)})</span>
-                  <span class="odd-value">${homePrice}</span>
-                </button>
-                <button class="odd-btn" onclick="alert('Bet slip logged for X (Draw) @ ${drawPrice} via Wallet ${data.oddsWallet}')">
-                  <span class="odd-label">X (Draw)</span>
-                  <span class="odd-value">${drawPrice}</span>
-                </button>
-                <button class="odd-btn" onclick="alert('Bet slip logged for 2 (Away Win: ${ev.away_team}) @ ${awayPrice} via Wallet ${data.oddsWallet}')">
-                  <span class="odd-label">2 (${ev.away_team.slice(0, 8)})</span>
-                  <span class="odd-value">${awayPrice}</span>
-                </button>
-              </div>
-            </div>
-          `;
-        }).join('');
-      } catch (err) {
-        statusEl.textContent = `Fetch exception: ${err.message}`;
+        const raw = localStorage.getItem(STORAGE_KEY) || sessionStorage.getItem(STORAGE_KEY);
+        if (!raw) return { slip: [], history: [], stake: 10 };
+        const parsed = JSON.parse(raw);
+        return {
+          slip: Array.isArray(parsed.slip) ? parsed.slip : [],
+          history: Array.isArray(parsed.history) ? parsed.history : [],
+          stake: Number(parsed.stake) > 0 ? Number(parsed.stake) : 10
+        };
+      } catch {
+        return { slip: [], history: [], stake: 10 };
       }
     }
 
-    fetchBtn.addEventListener('click', loadOdds);
-    sportSelect.addEventListener('change', loadOdds);
-    loadOdds();
+    let persisted = loadPersisted();
+
+    function savePersisted() {
+      const raw = JSON.stringify(persisted);
+      localStorage.setItem(STORAGE_KEY, raw);
+      sessionStorage.setItem(STORAGE_KEY, raw);
+    }
+
+    function deriveMarkets(ev) {
+      const home = ev.home_team || ev.homeTeam || 'Home';
+      const away = ev.away_team || ev.awayTeam || 'Away';
+      let hOdds = null, dOdds = null, aOdds = null, ovOdds = null, unOdds = null;
+
+      for (const bm of Array.isArray(ev.bookmakers) ? ev.bookmakers : []) {
+        for (const mkt of Array.isArray(bm.markets) ? bm.markets : []) {
+          if (mkt.key === 'h2h' && Array.isArray(mkt.outcomes)) {
+            const h = mkt.outcomes.find((o) => o.name === home);
+            const a = mkt.outcomes.find((o) => o.name === away);
+            const d = mkt.outcomes.find((o) => String(o.name).toLowerCase().includes('draw'));
+            if (h && !hOdds) hOdds = Number(h.price);
+            if (a && !aOdds) aOdds = Number(a.price);
+            if (d && !dOdds) dOdds = Number(d.price);
+          }
+          if (mkt.key === 'totals' && Array.isArray(mkt.outcomes)) {
+            const ov = mkt.outcomes.find((o) => String(o.name).toLowerCase() === 'over' && Number(o.point) === 2.5);
+            const un = mkt.outcomes.find((o) => String(o.name).toLowerCase() === 'under' && Number(o.point) === 2.5);
+            if (ov && !ovOdds) ovOdds = Number(ov.price);
+            if (un && !unOdds) unOdds = Number(un.price);
+          }
+        }
+      }
+
+      const markets = [];
+      const h2hOut = [
+        hOdds ? { code: '1', label: `1 (${home})`, odds: hOdds } : null,
+        dOdds ? { code: 'X', label: 'Draw', odds: dOdds } : null,
+        aOdds ? { code: '2', label: `2 (${away})`, odds: aOdds } : null
+      ].filter(Boolean);
+
+      if (h2hOut.length) {
+        markets.push({ key: 'H2H', label: 'Match Result (1X2)', outcomes: h2hOut });
+      }
+
+      if (hOdds && dOdds && aOdds) {
+        const p1 = 1 / hOdds, px = 1 / dOdds, p2 = 1 / aOdds;
+        markets.push({
+          key: 'DOUBLE_CHANCE',
+          label: 'Double Chance',
+          outcomes: [
+            { code: '1X', label: '1X', odds: Number(Math.max(1.05, 0.94 / (p1 + px)).toFixed(2)) },
+            { code: '12', label: '12', odds: Number(Math.max(1.05, 0.94 / (p1 + p2)).toFixed(2)) },
+            { code: 'X2', label: 'X2', odds: Number(Math.max(1.05, 0.94 / (px + p2)).toFixed(2)) }
+          ]
+        });
+      }
+
+      if (ovOdds || unOdds) {
+        markets.push({
+          key: 'OVER_UNDER',
+          label: 'Over / Under 2.5 Goals',
+          outcomes: [
+            ovOdds ? { code: 'OVER_2_5', label: 'Over 2.5', odds: ovOdds } : null,
+            unOdds ? { code: 'UNDER_2_5', label: 'Under 2.5', odds: unOdds } : null
+          ].filter(Boolean)
+        });
+      }
+
+      return {
+        id: ev.id,
+        sportTitle: ev.sport_title || ev.sport_key || 'Sport',
+        homeTeam: home,
+        awayTeam: away,
+        commenceTime: ev.commence_time || '',
+        markets
+      };
+    }
+
+    async function fetchFeed() {
+      const sport = document.getElementById('sport-select').value;
+      document.getElementById('sync-status').textContent = 'Syncing...';
+      try {
+        const res = await fetch(`/.netlify/functions/live-odds?sport=${encodeURIComponent(sport)}`);
+        const data = await res.json();
+        const rawList = Array.isArray(data.events) ? data.events : [];
+        const normalized = rawList.map(deriveMarkets);
+        const now = Date.now();
+
+        allEvents = normalized;
+        topPicks = normalized.slice(0, 10);
+        liveEvents = normalized.filter((e) => {
+          const t = e.commenceTime ? new Date(e.commenceTime).getTime() : 0;
+          return t > 0 && t <= now;
+        });
+
+        if (!selectedEvent && normalized.length > 0) {
+          selectedEvent = normalized[0];
+        }
+        document.getElementById('sync-status').textContent = `Loaded ${normalized.length} events`;
+      } catch (err) {
+        document.getElementById('sync-status').textContent = `Error: ${err.message}`;
+      }
+      renderAll();
+    }
+
+    function addLeg(ev, mktLabel, outcome) {
+      selectedEvent = ev;
+      sideMode = 'slip';
+      const legId = `${ev.id}::${outcome.code}`;
+      persisted.slip = [
+        ...persisted.slip.filter((item) => item.eventId !== ev.id),
+        {
+          id: legId,
+          eventId: ev.id,
+          match: `${ev.homeTeam} vs ${ev.awayTeam}`,
+          market: mktLabel,
+          outcome: outcome.label,
+          price: Number(outcome.odds)
+        }
+      ];
+      savePersisted();
+      renderAll();
+    }
+
+    function placeSlip() {
+      if (!persisted.slip.length || persisted.stake <= 0) return;
+      const totalOdds = Number(persisted.slip.reduce((acc, l) => acc * l.price, 1).toFixed(2));
+      const record = {
+        id: `bet_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        type: persisted.slip.length > 1 ? 'ACCUMULATOR' : 'SINGLE',
+        stake: Number(persisted.stake).toFixed(2),
+        odds: totalOdds.toFixed(2),
+        potentialReturn: (persisted.stake * totalOdds).toFixed(2),
+        legs: persisted.slip,
+        createdAt: new Date().toISOString()
+      };
+      persisted.history = [record, ...persisted.history];
+      persisted.slip = [];
+      sideMode = 'history';
+      savePersisted();
+      renderAll();
+    }
+
+    function renderAll() {
+      document.getElementById('tab-hub').classList.toggle('active', viewMode === 'hub');
+      document.getElementById('tab-sports').classList.toggle('active', viewMode === 'sports');
+      document.getElementById('tab-live').classList.toggle('active', viewMode === 'live');
+      document.getElementById('view-slip-btn').classList.toggle('active', sideMode === 'slip');
+      document.getElementById('view-history-btn').classList.toggle('active', sideMode === 'history');
+      document.getElementById('slip-count').textContent = persisted.slip.length;
+      document.getElementById('history-count').textContent = persisted.history.length;
+
+      const list = viewMode === 'hub' ? topPicks : viewMode === 'live' ? liveEvents : allEvents;
+      const grid = document.getElementById('events-grid');
+      grid.innerHTML = '';
+
+      if (!list.length) {
+        grid.innerHTML = '<div class="panel" style="grid-column:1/-1; color:#94a3b8;">No events in this section right now.</div>';
+      } else {
+        list.forEach((ev, idx) => {
+          const card = document.createElement('div');
+          card.className = `card${selectedEvent && selectedEvent.id === ev.id ? ' selected' : ''}`;
+          card.onclick = () => {
+            selectedEvent = ev;
+            renderAll();
+          };
+
+          const prefix = viewMode === 'hub' ? `#${idx + 1} TOP PICK` : ev.sportTitle;
+          const dateStr = ev.commenceTime ? new Date(ev.commenceTime).toLocaleDateString() : '';
+          const h2h = ev.markets.find((m) => m.key === 'H2H');
+
+          let buttonsHtml = '';
+          if (h2h && h2h.outcomes.length) {
+            buttonsHtml = `<div class="odds-row">${h2h.outcomes.map((o) =>
+              `<button type="button" class="odd-btn" onclick="event.stopPropagation(); window.__addLeg('${ev.id}', '${h2h.label}', '${o.code}')">${o.code}<br/>${o.odds}</button>`
+            ).join('')}</div>`;
+          }
+
+          card.innerHTML = `
+            <div class="meta"><span>${prefix}</span><span>${dateStr}</span></div>
+            <div class="match-title">${ev.homeTeam} vs ${ev.awayTeam}</div>
+            ${buttonsHtml}
+          `;
+          grid.appendChild(card);
+        });
+      }
+
+      const inspector = document.getElementById('market-inspector');
+      if (selectedEvent) {
+        inspector.style.display = 'block';
+        inspector.innerHTML = `
+          <div class="meta" style="margin-bottom:6px;">
+            <span>MATCH MARKETS — ${selectedEvent.sportTitle}</span>
+            <span>${selectedEvent.commenceTime ? new Date(selectedEvent.commenceTime).toLocaleString() : ''}</span>
+          </div>
+          <h3 style="margin:0 0 12px; font-size:17px;">${selectedEvent.homeTeam} vs ${selectedEvent.awayTeam}</h3>
+          ${selectedEvent.markets.map((mkt) => `
+            <div class="market-group">
+              <div class="market-label">${mkt.label}</div>
+              <div class="market-options">
+                ${mkt.outcomes.map((o) => `
+                  <button type="button" class="odd-btn" style="display:flex; justify-content:space-between; padding:9px 12px;"
+                    onclick="window.__addLeg('${selectedEvent.id}', '${mkt.label}', '${o.code}')">
+                    <span>${o.label}</span>
+                    <span>${o.odds}x</span>
+                  </button>
+                `).join('')}
+              </div>
+            </div>
+          `).join('')}
+        `;
+      } else {
+        inspector.style.display = 'none';
+      }
+
+      const sideEl = document.getElementById('side-content');
+      if (sideMode === 'slip') {
+        const totalOdds = persisted.slip.length
+          ? Number(persisted.slip.reduce((acc, l) => acc * l.price, 1).toFixed(2))
+          : 0;
+        const estReturn = (persisted.stake * totalOdds).toFixed(2);
+
+        sideEl.innerHTML = `
+          ${persisted.slip.length ? persisted.slip.map((l) => `
+            <div class="leg-item">
+              <div>
+                <div style="font-weight:700;">${l.match}</div>
+                <div style="color:#94a3b8; font-size:11px;">${l.market}</div>
+                <div style="color:#38bdf8;">${l.outcome} @ <strong>${l.price}x</strong></div>
+              </div>
+              <button type="button" class="odd-btn" style="padding:4px 8px;" onclick="window.__removeLeg('${l.id}')">Remove</button>
+            </div>
+          `).join('') : '<div style="color:#94a3b8; font-size:12px; margin-bottom:12px;">No legs selected.</div>'}
+
+          <div class="meta" style="margin-bottom:8px;">
+            <span>Combined Odds</span>
+            <strong style="color:#38bdf8;">${persisted.slip.length ? totalOdds + 'x' : '0.00x'}</strong>
+          </div>
+          <label for="slip-stake-input" style="font-size:12px; color:#cbd5e1;">Stake ($)</label>
+          <input id="slip-stake-input" type="number" min="0.01" step="0.01" value="${persisted.stake}" />
+          <div class="meta" style="margin-bottom:12px;">
+            <span>Estimated Return</span>
+            <strong style="color:#34d399;">$${persisted.slip.length ? estReturn : '0.00'}</strong>
+          </div>
+          <button type="button" class="action primary" style="width:100%;" id="place-slip-btn" ${!persisted.slip.length ? 'disabled' : ''}>
+            Place ${persisted.slip.length > 1 ? 'Accumulator' : 'Bet'}
+          </button>
+        `;
+
+        const stakeInp = document.getElementById('slip-stake-input');
+        stakeInp.addEventListener('input', (e) => {
+          persisted.stake = Math.max(0, Number(e.target.value) || 0);
+          savePersisted();
+        });
+        document.getElementById('place-slip-btn').addEventListener('click', placeSlip);
+      } else {
+        sideEl.innerHTML = persisted.history.length ? persisted.history.map((h) => `
+          <div class="leg-item" style="display:block;">
+            <div class="meta">
+              <strong style="color:#38bdf8;">${h.type}</strong>
+              <span>${new Date(h.createdAt).toLocaleString()}</span>
+            </div>
+            <div style="margin-top:4px; font-weight:700;">
+              Stake $${h.stake} @ ${h.odds}x → <span style="color:#34d399;">$${h.potentialReturn}</span>
+            </div>
+            <div style="font-size:11px; color:#94a3b8; margin-top:4px;">
+              ${h.legs.map((l) => `${l.outcome} (${l.price}x)`).join(' • ')}
+            </div>
+          </div>
+        `).join('') : '<div style="color:#94a3b8; font-size:12px;">No saved bets or history yet.</div>';
+      }
+    }
+
+    window.__addLeg = (eventId, mktLabel, code) => {
+      const ev = allEvents.find((x) => x.id === eventId) || selectedEvent;
+      if (!ev) return;
+      for (const m of ev.markets) {
+        const found = m.outcomes.find((o) => o.code === code);
+        if (found) {
+          addLeg(ev, mktLabel || m.label, found);
+          return;
+        }
+      }
+    };
+
+    window.__removeLeg = (legId) => {
+      persisted.slip = persisted.slip.filter((x) => x.id !== legId);
+      savePersisted();
+      renderAll();
+    };
+
+    document.getElementById('tab-hub').addEventListener('click', () => { viewMode = 'hub'; renderAll(); });
+    document.getElementById('tab-sports').addEventListener('click', () => { viewMode = 'sports'; renderAll(); });
+    document.getElementById('tab-live').addEventListener('click', () => { viewMode = 'live'; renderAll(); });
+    document.getElementById('view-slip-btn').addEventListener('click', () => { sideMode = 'slip'; renderAll(); });
+    document.getElementById('view-history-btn').addEventListener('click', () => { sideMode = 'history'; renderAll(); });
+    document.getElementById('sport-select').addEventListener('change', fetchFeed);
+    document.getElementById('refresh-btn').addEventListener('click', fetchFeed);
+
+    fetchFeed();
   </script>
 </body>
 </html>
