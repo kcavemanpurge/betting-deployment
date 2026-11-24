@@ -1,159 +1,179 @@
 import { Pool } from '@neondatabase/serverless';
 import { getDatabase } from '@netlify/database';
 
+const DEFAULT_SETTLEMENT_WALLET = '4AB1u2f16V1Vno2fzN4GTN41MTSWjW4E3ViN4bg3qA4m';
+
 let pool;
 
 function getPool() {
   if (pool) return pool;
+
   try {
     const db = getDatabase();
     if (db && db.pool) {
       pool = db.pool;
       return pool;
     }
-  } catch (err) {
-    // Fallback
+  } catch {
+    // Fall back to explicit environment connection string
   }
 
   const connectionString =
     process.env.DATABASE_URL ||
     process.env.NETLIFY_DATABASE_URL ||
-    'postgresql://localhost:5432/betting';
+    process.env.POSTGRES_URL;
+
+  if (!connectionString) {
+    throw new Error('DATABASE_URL_NOT_CONFIGURED');
+  }
 
   pool = new Pool({ connectionString });
   return pool;
 }
 
-export async function handler(event, context) {
+export async function handler(event) {
   const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
   };
 
   if (event.httpMethod === 'OPTIONS') {
     return {
-      statusCode: 200,
+      statusCode: 204,
       headers: corsHeaders,
-      body: ''
+      body: '',
     };
   }
 
   const startTime = Date.now();
+  const settlementWallet = (
+    process.env.NETLIFY_ODDS_WALLET_ADDRESS ||
+    process.env.HOT_WALLET_ADDRESS ||
+    DEFAULT_SETTLEMENT_WALLET
+  ).trim();
 
   try {
     let command = 'status';
-    let args = {};
 
     if (event.httpMethod === 'POST') {
       const body = JSON.parse(event.body || '{}');
-      command = (body.command || 'status').toLowerCase().trim();
-      args = body.args || {};
+      command = (body.command || 'status').toString().toLowerCase().trim();
     } else if (event.httpMethod === 'GET') {
-      command = (event.queryStringParameters?.command || 'status').toLowerCase().trim();
+      command = (event.queryStringParameters?.command || 'status').toString().toLowerCase().trim();
+    } else {
+      return {
+        statusCode: 405,
+        headers: corsHeaders,
+        body: JSON.stringify({ ok: false, error: 'METHOD_NOT_ALLOWED' }),
+      };
     }
 
-    // Command: deploy / deploy-check
+    if (command === 'ping') {
+      return {
+        statusCode: 200,
+        headers: corsHeaders,
+        body: JSON.stringify({
+          ok: true,
+          pong: true,
+          settlementWallet,
+          latencyMs: Date.now() - startTime,
+          timestamp: new Date().toISOString(),
+        }),
+      };
+    }
+
     if (command === 'deploy' || command === 'deploy-check') {
       let dbStatus = 'CONNECTED';
       let dbLatencyMs = 0;
-      let totalBlocks = 0;
+      let totalSettlements = 0;
 
       try {
         const dbStart = Date.now();
         const activePool = getPool();
         const client = await activePool.connect();
         try {
-          const res = await client.query('SELECT count(*) as count FROM bet_settlements');
-          totalBlocks = parseInt(res.rows[0]?.count || 0, 10);
+          const res = await client.query('SELECT count(*) AS count FROM bet_settlements');
+          totalSettlements = Number.parseInt(res.rows[0]?.count || '0', 10);
           dbLatencyMs = Date.now() - dbStart;
         } finally {
           client.release();
         }
       } catch (e) {
-        dbStatus = `CONNECTING (${e.message})`;
+        dbStatus = `ERROR (${e instanceof Error ? e.message : 'DB_UNREACHABLE'})`;
       }
 
       return {
         statusCode: 200,
         headers: corsHeaders,
         body: JSON.stringify({
-          success: true,
+          ok: true,
           command: 'deploy',
-          deploymentStatus: '100%_SERVERLESS_OPERATIONAL',
-          edgeNode: 'incomparable-vector.netlify.app',
           runtime: 'NETLIFY_SERVERLESS_FUNCTIONS',
+          settlementWallet,
+          oddsFeedConfigured: Boolean(process.env.ODDS_API_KEY),
           functions: [
-            { name: 'settle', path: '/.netlify/functions/settle', type: 'WORM_ATOMIC_SETTLEMENT', status: 'ACTIVE' },
-            { name: 'withdraw', path: '/.netlify/functions/withdraw', type: 'CARD_RAIL_SETTLEMENT', status: 'ACTIVE' },
-            { name: 'round', path: '/.netlify/functions/round', type: 'PROVABLY_FAIR_GENERATOR', status: 'ACTIVE' },
-            { name: 'system', path: '/.netlify/functions/system', type: 'SERVERLESS_TERMINAL_ENGINE', status: 'ACTIVE' }
+            { name: 'settle', path: '/.netlify/functions/settle', status: 'ACTIVE' },
+            { name: 'withdraw', path: '/.netlify/functions/withdraw', status: 'ACTIVE' },
+            { name: 'round', path: '/.netlify/functions/round', status: 'ACTIVE' },
+            { name: 'live-odds', path: '/.netlify/functions/live-odds', status: 'ACTIVE' },
+            { name: 'system', path: '/.netlify/functions/system', status: 'ACTIVE' },
           ],
           database: {
-            provider: 'NETLIFY_POSTGRESQL',
-            branch: process.env.NETLIFY_DB_BRANCH || 'production-preview',
+            provider: 'POSTGRESQL',
             status: dbStatus,
             latencyMs: dbLatencyMs,
-            totalSettlementBlocks: totalBlocks
+            totalSettlements,
           },
-          externalDependencies: {
-            termux: 'ELIMINATED (ZERO_EXTERNAL_SHELL_DEPENDENCY)',
-            mobileNode: 'MIGRATED_TO_SERVERLESS_WEB_TERMINAL',
-            manualSettlement: 'ELIMINATED (100%_AUTOMATED_EDGE_EXECUTION)'
-          },
-          executionTimeMs: Date.now() - startTime
-        })
+          executionTimeMs: Date.now() - startTime,
+          timestamp: new Date().toISOString(),
+        }),
       };
     }
 
-    // Command: ping
-    if (command === 'ping') {
-      return {
-        statusCode: 200,
-        headers: corsHeaders,
-        body: JSON.stringify({
-          success: true,
-          pong: true,
-          edgeRegion: process.env.NETLIFY_IMAGES_CDN_DOMAIN || 'us-east-2',
-          latencyMs: Date.now() - startTime,
-          timestamp: new Date().toISOString()
-        })
-      };
-    }
+    let dbStatus = 'CONNECTED';
+    let dbLatencyMs = 0;
 
-    // Default: status / telemetry
-    let activeDb = 'UNVERIFIED';
     try {
+      const dbStart = Date.now();
       const activePool = getPool();
       const client = await activePool.connect();
-      client.release();
-      activeDb = 'POSTGRES_CONNECTED';
+      try {
+        await client.query('SELECT 1');
+        dbLatencyMs = Date.now() - dbStart;
+      } finally {
+        client.release();
+      }
     } catch (e) {
-      activeDb = 'EDGE_BUFFER_ACTIVE';
+      dbStatus = `ERROR (${e instanceof Error ? e.message : 'DB_UNREACHABLE'})`;
     }
 
     return {
       statusCode: 200,
       headers: corsHeaders,
       body: JSON.stringify({
-        success: true,
+        ok: true,
         command: 'status',
-        system: 'SOVEREIGN_BETTING_DEPLOYMENT',
-        architecture: 'SERVERLESS_NETLIFY_EDGE_STACK',
-        databaseStatus: activeDb,
-        functionsCount: 4,
-        autoSettlement: 'ENABLED',
-        termuxDependency: 'NONE',
+        runtime: 'NETLIFY_SERVERLESS_FUNCTIONS',
+        settlementWallet,
+        oddsFeedConfigured: Boolean(process.env.ODDS_API_KEY),
+        databaseStatus: dbStatus,
+        databaseLatencyMs: dbLatencyMs,
+        functionsCount: 5,
         executionTimeMs: Date.now() - startTime,
-        timestamp: new Date().toISOString()
-      })
+        timestamp: new Date().toISOString(),
+      }),
     };
   } catch (error) {
     return {
       statusCode: 500,
       headers: corsHeaders,
-      body: JSON.stringify({ error: error.message })
+      body: JSON.stringify({
+        ok: false,
+        error: 'SYSTEM_DIAGNOSTIC_FAILED',
+        detail: error instanceof Error ? error.message : 'UNKNOWN_ERROR',
+      }),
     };
   }
 }
