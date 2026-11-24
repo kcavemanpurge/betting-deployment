@@ -1,129 +1,78 @@
-// netlify/functions/live-odds.ts
-import type { Handler, HandlerEvent } from '@netlify/functions';
+import {
+  pgTable,
+  text,
+  integer,
+  numeric,
+  timestamp,
+  boolean,
+  jsonb,
+  index,
+  date,
+} from "drizzle-orm/pg-core";
 
-const DEFAULT_ODDS_API_KEY = '8a34fc6b3d3ef305027d6679d1e68f12';
-const DEFAULT_ODDS_WALLET = '4AB1u2f16V1Vno2fzN4GTN41MTSWjW4E3ViN4bg3qA4m';
-const DEFAULT_ODDS_BASE_URL = 'https://api.the-odds-api.com/v4';
+export const sportsEvents = pgTable(
+  "sports_events",
+  {
+    eventId: text("event_id").primaryKey(),
+    sportKey: text("sport_key").notNull(),
+    sportTitle: text("sport_title").notNull(),
+    category: text("category").notNull().default("SPORTS"), // 'SPORTS' | 'LIVE' | 'VIRTUAL'
+    homeTeam: text("home_team").notNull(),
+    awayTeam: text("away_team").notNull(),
+    commenceTime: timestamp("commence_time", { withTimezone: true }).notNull(),
+    isLive: boolean("is_live").notNull().default(false),
+    status: text("status").notNull().default("SCHEDULED"), // 'SCHEDULED' | 'LIVE' | 'FINISHED'
+    homeScore: integer("home_score").notNull().default(0),
+    awayScore: integer("away_score").notNull().default(0),
+    topPickRank: integer("top_pick_rank"),
+    settlementWallet: text("settlement_wallet")
+      .notNull()
+      .default("4AB1u2f16V1Vno2fzN4GTN41MTSWjW4E3ViN4bg3qA4m"),
+    rawPayload: jsonb("raw_payload").notNull().default({}),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_sports_events_sport_live").on(table.sportKey, table.isLive),
+    index("idx_sports_events_top_pick").on(table.topPickRank),
+  ]
+);
 
-const CORS_HEADERS = {
-  'Content-Type': 'application/json',
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-};
+export const eventMarkets = pgTable(
+  "event_markets",
+  {
+    id: text("id").primaryKey(),
+    eventId: text("event_id")
+      .notNull()
+      .references(() => sportsEvents.eventId, { onDelete: "cascade" }),
+    marketKey: text("market_key").notNull(), // 'H2H' | 'DOUBLE_CHANCE' | 'OVER_UNDER' | 'BTTS'
+    marketLabel: text("market_label").notNull(),
+    lineValue: numeric("line_value", { precision: 6, scale: 2 }),
+    outcomes: jsonb("outcomes").notNull().default([]), // [{ code, label, odds }]
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_event_markets_event").on(table.eventId, table.marketKey),
+  ]
+);
 
-function resolveSportKey(rawSport?: string): string {
-  const normalized = (rawSport || 'soccer_epl').trim().toLowerCase();
-  const map: Record<string, string> = {
-    epl: 'soccer_epl',
-    premier_league: 'soccer_epl',
-    soccer_epl: 'soccer_epl',
-    laliga: 'soccer_spain_la_liga',
-    la_liga: 'soccer_spain_la_liga',
-    soccer_spain_la_liga: 'soccer_spain_la_liga',
-    seriea: 'soccer_italy_serie_a',
-    serie_a: 'soccer_italy_serie_a',
-    soccer_italy_serie_a: 'soccer_italy_serie_a',
-    bundesliga: 'soccer_germany_bundesliga',
-    soccer_germany_bundesliga: 'soccer_germany_bundesliga',
-    ligue1: 'soccer_france_ligue_one',
-    ligue_1: 'soccer_france_ligue_one',
-    soccer_france_ligue_one: 'soccer_france_ligue_one',
-    nba: 'basketball_nba',
-    basketball_nba: 'basketball_nba',
-    ncaab: 'basketball_ncaab',
-    basketball_ncaab: 'basketball_ncaab',
-    nfl: 'americanfootball_nfl',
-    americanfootball_nfl: 'americanfootball_nfl',
-  };
-  return map[normalized] || normalized;
-}
-
-export const handler: Handler = async (event: HandlerEvent) => {
-  if (event.httpMethod === 'OPTIONS') {
-    return {
-      statusCode: 204,
-      headers: CORS_HEADERS,
-      body: '',
-    };
-  }
-
-  const apiKey = (process.env.ODDS_API_KEY || DEFAULT_ODDS_API_KEY).trim();
-  const oddsWallet = (
-    process.env.NETLIFY_ODDS_WALLET_ADDRESS ||
-    process.env.HOT_WALLET_ADDRESS ||
-    DEFAULT_ODDS_WALLET
-  ).trim();
-  const baseUrl = (process.env.ODDS_API_BASE_URL || DEFAULT_ODDS_BASE_URL).replace(/\/+$/, '');
-
-  const sport = resolveSportKey(event.queryStringParameters?.sport);
-  const regions = (event.queryStringParameters?.regions || 'uk,eu,us').trim();
-  const markets = (event.queryStringParameters?.markets || 'h2h,spreads,totals').trim();
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 10000);
-
-  try {
-    const url =
-      `${baseUrl}/sports/${encodeURIComponent(sport)}/odds/` +
-      `?apiKey=${encodeURIComponent(apiKey)}` +
-      `&regions=${encodeURIComponent(regions)}` +
-      `&markets=${encodeURIComponent(markets)}`;
-
-    const response = await fetch(url, { signal: controller.signal });
-    clearTimeout(timeoutId);
-
-    const remainingRequests = response.headers.get('x-requests-remaining');
-    const usedRequests = response.headers.get('x-requests-used');
-
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => '');
-      return {
-        statusCode: response.status,
-        headers: CORS_HEADERS,
-        body: JSON.stringify({
-          ok: false,
-          error: 'Odds API fetch failed',
-          status: response.status,
-          detail: errorText || response.statusText,
-          sport,
-          oddsWallet,
-        }),
-      };
-    }
-
-    const events = await response.json();
-    const list = Array.isArray(events) ? events : [];
-
-    return {
-      statusCode: 200,
-      headers: CORS_HEADERS,
-      body: JSON.stringify({
-        ok: true,
-        sport,
-        count: list.length,
-        oddsWallet,
-        quota: {
-          remaining: remainingRequests ? Number(remainingRequests) : null,
-          used: usedRequests ? Number(usedRequests) : null,
-        },
-        fetchedAt: new Date().toISOString(),
-        events: list,
-      }),
-    };
-  } catch (err) {
-    clearTimeout(timeoutId);
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    return {
-      statusCode: 502,
-      headers: CORS_HEADERS,
-      body: JSON.stringify({
-        ok: false,
-        error: 'Live odds upstream request failed',
-        detail: message,
-        sport,
-        oddsWallet,
-      }),
-    };
-  }
-};
+export const eventHistoryDaily = pgTable(
+  "event_history_daily",
+  {
+    id: text("id").primaryKey(),
+    archiveDate: date("archive_date").notNull().defaultNow(),
+    eventId: text("event_id").notNull(),
+    sportKey: text("sport_key").notNull(),
+    homeTeam: text("home_team").notNull(),
+    awayTeam: text("away_team").notNull(),
+    finalHomeScore: integer("final_home_score").notNull().default(0),
+    finalAwayScore: integer("final_away_score").notNull().default(0),
+    marketsSnapshot: jsonb("markets_snapshot").notNull().default([]),
+    settlementWallet: text("settlement_wallet")
+      .notNull()
+      .default("4AB1u2f16V1Vno2fzN4GTN41MTSWjW4E3ViN4bg3qA4m"),
+    recordedAt: timestamp("recorded_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_event_history_date_sport").on(table.archiveDate, table.sportKey),
+  ]
+);
