@@ -43,7 +43,23 @@ npm run dev
 
 # Generate database migrations
 npm run db:generate
+
+# Migrate repository to a new GitHub account
+npm run migrate:repo
 ```
+
+## Repository Migration
+
+To mirror all commit history, branches, and tags to a new GitHub account:
+
+1. Create a fresh, empty repository in your target GitHub account (do not initialize with README, `.gitignore`, or license).
+2. Execute the helper script:
+   ```bash
+   npm run migrate:repo
+   # or directly with parameters:
+   ./scripts/migrate-repo.sh <OLD_ACCOUNT> <NEW_ACCOUNT>
+   ```
+3. Re-link the repository in your Netlify site settings under **Project Settings > Build & Deploy > Continuous Deployment > Repository**.
 
 ## Directory Structure
 
