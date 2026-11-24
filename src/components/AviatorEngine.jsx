@@ -1,80 +1,80 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { sound } from '../utils/audio.js';
-import { 
-  Plane, 
-  Zap, 
-  Play, 
-  CheckCircle, 
-  AlertTriangle, 
-  ShieldCheck, 
-  RefreshCw, 
-  ArrowUpRight, 
-  DollarSign, 
-  Activity, 
-  Clock, 
-  Unlock, 
-  Lock, 
+import {
+  Plane,
+  Zap,
+  CheckCircle,
+  AlertTriangle,
+  ShieldCheck,
+  Clock,
+  Unlock,
+  Lock,
   Timer,
-  UserCheck,
   User,
-  Sparkles
+  Sparkles,
 } from 'lucide-react';
 
-export function AviatorEngine({ 
-  userId = 'user_caveman_01',
-  initialBalance = 1000.00,
+function generateCrashPoint() {
+  const r = Math.random();
+  if (r < 0.04) return 1.0;
+  const val = (100 * 0.96) / (100 * (1 - r));
+  return Math.min(25.0, Number(Math.max(1.01, val).toFixed(2)));
+}
+
+export function Aviator({
+  userId = '',
+  initialBalance = 0,
   externalBalance,
   onBalanceChange,
   onSettlementComplete,
   onOpenProfile,
-  boostMultiplier = null
+  boostMultiplier = null,
 }) {
-  // Balance & Ledger State
   const [balance, setBalance] = useState(externalBalance ?? initialBalance);
 
-  // Staking Parameters
-  const [wagerStake, setWagerStake] = useState(50.00);
-  const [targetOdds, setTargetOdds] = useState(2.00);
-  const [autoLoop, setAutoLoop] = useState(false); // Automated continuous hands-free flight loop
+  const [wagerStake, setWagerStake] = useState(10.0);
+  const [targetOdds, setTargetOdds] = useState(2.0);
+  const [autoLoop, setAutoLoop] = useState(false);
   const [accaBoostActive, setAccaBoostActive] = useState(false);
 
-  // Countdown & Calm-Down Engine ("Calm down before flight / unlock betting for Ella")
-  const [countdownDuration, setCountdownDuration] = useState(5); // 5s or 3s selector
-  const [calmDownRemaining, setCalmDownRemaining] = useState(null); // null | number
-  const [isBettingUnlocked, setIsBettingUnlocked] = useState(true); // Ella / operator vetting unlock switch
-  const [flightPhase, setFlightPhase] = useState('IDLE'); // 'IDLE' | 'CALM_DOWN' | 'FLYING' | 'LOCKED' | 'CRASHED'
+  const [countdownDuration, setCountdownDuration] = useState(5);
+  const [calmDownRemaining, setCalmDownRemaining] = useState(null);
+  const [isBettingUnlocked, setIsBettingUnlocked] = useState(true);
+  const [flightPhase, setFlightPhase] = useState('IDLE');
 
-  // Flight State
-  const [multiplier, setMultiplier] = useState(1.00);
+  const [multiplier, setMultiplier] = useState(1.0);
   const [isRunning, setIsRunning] = useState(false);
   const [settlementLog, setSettlementLog] = useState('');
+
   const hasSettledRef = useRef(false);
+  const crashPointRef = useRef(2.0);
   const canvasRef = useRef(null);
   const countdownIntervalRef = useRef(null);
 
-  // Sync balance if parent provides externalBalance
   useEffect(() => {
     if (externalBalance !== undefined && externalBalance !== null) {
       setBalance(externalBalance);
     }
   }, [externalBalance]);
 
-  // Sync external boost multiplier from football accumulator
   useEffect(() => {
     if (boostMultiplier && boostMultiplier > 1.0) {
-      setTargetOdds(parseFloat(boostMultiplier.toFixed(2)));
+      setTargetOdds(Number(boostMultiplier.toFixed(2)));
       setAccaBoostActive(true);
     }
   }, [boostMultiplier]);
 
-  const updateBalance = useCallback((newBal) => {
-    setBalance(newBal);
-    if (onBalanceChange) {
-      onBalanceChange(newBal);
-    }
-  }, [onBalanceChange]);
+  const updateBalance = useCallback(
+    (newBal) => {
+      const clamped = Number(Math.max(0, newBal).toFixed(2));
+      setBalance(clamped);
+      if (onBalanceChange) {
+        onBalanceChange(clamped);
+      }
+    },
+    [onBalanceChange]
+  );
 
-  // Clean up any running countdown timer
   const clearCountdownTimer = useCallback(() => {
     if (countdownIntervalRef.current) {
       clearInterval(countdownIntervalRef.current);
@@ -82,10 +82,9 @@ export function AviatorEngine({
     }
   }, []);
 
-  // Launch Flight Trajectory (Called after countdown hits 0 or on immediate bypass)
   const launchFlight = useCallback(() => {
     if (balance < wagerStake) {
-      setSettlementLog('ERROR: Insufficient ledger balance for stake');
+      setSettlementLog('ERROR: Insufficient balance for stake');
       setFlightPhase('IDLE');
       setCalmDownRemaining(null);
       setIsBettingUnlocked(true);
@@ -94,42 +93,48 @@ export function AviatorEngine({
 
     clearCountdownTimer();
     setCalmDownRemaining(null);
-    setIsBettingUnlocked(false); // Lock betting during flight
-    setMultiplier(1.00);
+    setIsBettingUnlocked(false);
+
+    const nextBal = Number((balance - wagerStake).toFixed(2));
+    updateBalance(nextBal);
+
+    crashPointRef.current = generateCrashPoint();
+    setMultiplier(1.0);
     setIsRunning(true);
     setFlightPhase('FLYING');
     setSettlementLog('');
     hasSettledRef.current = false;
     sound.playLaunchWhoosh();
-  }, [balance, wagerStake, clearCountdownTimer]);
+  }, [balance, wagerStake, clearCountdownTimer, updateBalance]);
 
-  // Start Calm-Down Countdown before flight (e.g. 5s or 3s)
-  const startCalmDownCountdown = useCallback((durationOverride = null) => {
-    clearCountdownTimer();
-    const duration = durationOverride || countdownDuration;
-    setCalmDownRemaining(duration);
-    setFlightPhase('CALM_DOWN');
-    setIsBettingUnlocked(true); // Unlock betting for Ella / operator to adjust/arm
-    sound.playCountdownTick(duration);
+  const startCalmDownCountdown = useCallback(
+    (durationOverride = null) => {
+      clearCountdownTimer();
+      const duration = durationOverride || countdownDuration;
+      setCalmDownRemaining(duration);
+      setFlightPhase('CALM_DOWN');
+      setIsBettingUnlocked(true);
+      sound.playCountdownTick(duration);
 
-    let count = duration;
-    countdownIntervalRef.current = setInterval(() => {
-      count -= 1;
-      if (count > 0) {
-        setCalmDownRemaining(count);
-        sound.playCountdownTick(count);
-      } else {
-        clearInterval(countdownIntervalRef.current);
-        countdownIntervalRef.current = null;
-        setCalmDownRemaining(0);
-        setTimeout(() => {
-          launchFlight();
-        }, 150);
-      }
-    }, 1000);
-  }, [countdownDuration, clearCountdownTimer, launchFlight]);
+      let count = duration;
+      countdownIntervalRef.current = setInterval(() => {
+        count -= 1;
+        if (count > 0) {
+          setCalmDownRemaining(count);
+          sound.playCountdownTick(count);
+        } else {
+          clearInterval(countdownIntervalRef.current);
+          countdownIntervalRef.current = null;
+          setCalmDownRemaining(0);
+          setTimeout(() => {
+            launchFlight();
+          }, 150);
+        }
+      }, 1000);
+    },
+    [countdownDuration, clearCountdownTimer, launchFlight]
+  );
 
-  // Cancel Countdown
   const cancelCountdown = useCallback(() => {
     clearCountdownTimer();
     setCalmDownRemaining(null);
@@ -137,95 +142,79 @@ export function AviatorEngine({
     setIsBettingUnlocked(true);
   }, [clearCountdownTimer]);
 
-  // Execute Automated Serverless Settlement
-  const executeSettlement = useCallback(async (finalMult, triggerType) => {
-    const sessionId = `aviator_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-    const payout = (wagerStake * finalMult).toFixed(2);
-    setFlightPhase('LOCKED');
-    sound.playCashout();
+  const executeSettlement = useCallback(
+    async (finalMult, triggerType) => {
+      const sessionId = `aviator_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+      const payout = Number((wagerStake * finalMult).toFixed(2));
+      setFlightPhase('LOCKED');
+      sound.playCashout();
 
-    try {
-      const res = await fetch('/.netlify/functions/settle', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionId,
-          userId,
-          wagerAmount: wagerStake,
-          multiplier: finalMult,
-          triggerType
-        })
-      });
+      let settlementId = sessionId;
+      let timestamp = new Date().toISOString();
 
-      const data = await res.json();
-      if (data.success || res.status === 200) {
-        const nextBal = parseFloat((balance + parseFloat(payout) - wagerStake).toFixed(2));
-        updateBalance(nextBal);
-        setSettlementLog(`[${triggerType}] SERVERLESS SETTLED: +$${payout} @ ${finalMult}x (TX: ${data.settlementId?.slice(0, 10)}...)`);
-
-        if (onSettlementComplete) {
-          onSettlementComplete({
-            id: data.settlementId || sessionId,
-            session_id: sessionId,
-            user_id: userId,
-            wager_amount: wagerStake.toFixed(2),
-            multiplier: finalMult.toFixed(2),
-            payout_amount: payout,
-            status: 'SETTLED',
-            created_at: data.timestamp || new Date().toISOString()
-          });
-        }
-      } else {
-        setSettlementLog(`SERVERLESS REJECTED: ${data.error}`);
+      try {
+        const res = await fetch('/.netlify/functions/settle', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sessionId,
+            userId,
+            wagerAmount: wagerStake,
+            multiplier: finalMult,
+            triggerType,
+          }),
+        });
+        const data = await res.json();
+        if (data.settlementId) settlementId = data.settlementId;
+        if (data.timestamp) timestamp = data.timestamp;
+      } catch {
+        // Keep local balance update synced when offline
       }
-    } catch (err) {
-      const nextBal = parseFloat((balance + parseFloat(payout) - wagerStake).toFixed(2));
-      updateBalance(nextBal);
-      setSettlementLog(`[${triggerType}] ATOMIC SETTLED: +$${payout} @ ${finalMult}x`);
+
+      const settledBal = Number((balance + payout).toFixed(2));
+      updateBalance(settledBal);
+      setSettlementLog(`[${triggerType}] SETTLED: +$${payout.toFixed(2)} @ ${finalMult.toFixed(2)}x`);
 
       if (onSettlementComplete) {
         onSettlementComplete({
-          id: sessionId,
+          id: settlementId,
           session_id: sessionId,
           user_id: userId,
           wager_amount: wagerStake.toFixed(2),
           multiplier: finalMult.toFixed(2),
-          payout_amount: payout,
+          payout_amount: payout.toFixed(2),
           status: 'SETTLED',
-          created_at: new Date().toISOString()
+          created_at: timestamp,
         });
       }
-    }
 
-    // After flight finishes, if autoLoop is enabled, trigger the Calm-Down Countdown for next flight
-    if (autoLoop) {
-      setTimeout(() => {
-        startCalmDownCountdown();
-      }, 1200);
-    } else {
-      setIsBettingUnlocked(true);
-    }
-  }, [wagerStake, userId, balance, autoLoop, updateBalance, onSettlementComplete, startCalmDownCountdown]);
+      if (autoLoop) {
+        setTimeout(() => {
+          startCalmDownCountdown();
+        }, 1200);
+      } else {
+        setIsBettingUnlocked(true);
+      }
+    },
+    [wagerStake, userId, balance, autoLoop, updateBalance, onSettlementComplete, startCalmDownCountdown]
+  );
 
-  // Flight trajectory loop
   useEffect(() => {
     let animationId;
-    let currentMult = 1.00;
+    let currentMult = 1.0;
 
     if (isRunning) {
       hasSettledRef.current = false;
 
       const tick = () => {
         currentMult += 0.015;
-        const formattedMult = parseFloat(currentMult.toFixed(2));
+        const formattedMult = Number(currentMult.toFixed(2));
         setMultiplier(formattedMult);
 
-        // Sound pulse on altitude climb
         if (Math.floor(formattedMult * 10) % 5 === 0) {
           sound.playVectorClimb(formattedMult);
         }
 
-        // 1. AUTO-LOCK ENGINE: Automatically settle if target odds hit
         if (formattedMult >= targetOdds && !hasSettledRef.current) {
           hasSettledRef.current = true;
           setIsRunning(false);
@@ -233,19 +222,13 @@ export function AviatorEngine({
           return;
         }
 
-        // 2. SIMULATED CRASH POINT
-        if (formattedMult >= 10.00) {
+        if (formattedMult >= crashPointRef.current) {
           hasSettledRef.current = true;
           setIsRunning(false);
           setFlightPhase('CRASHED');
           sound.playCrash();
-          setSettlementLog('CRASHED: Flight Terminated // Zero Payout');
+          setSettlementLog(`CRASHED @ ${crashPointRef.current.toFixed(2)}x`);
 
-          // Deduct stake from ledger
-          const nextBal = parseFloat(Math.max(0, balance - wagerStake).toFixed(2));
-          updateBalance(nextBal);
-
-          // If autoLoop enabled, start the calm-down countdown for next flight
           if (autoLoop) {
             setTimeout(() => {
               startCalmDownCountdown();
@@ -266,9 +249,8 @@ export function AviatorEngine({
       cancelAnimationFrame(animationId);
       clearCountdownTimer();
     };
-  }, [isRunning, targetOdds, wagerStake, balance, autoLoop, executeSettlement, startCalmDownCountdown, updateBalance, clearCountdownTimer]);
+  }, [isRunning, targetOdds, autoLoop, executeSettlement, startCalmDownCountdown, clearCountdownTimer]);
 
-  // Background Canvas Visualizer
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -281,29 +263,11 @@ export function AviatorEngine({
 
       ctx.clearRect(0, 0, width, height);
 
-      // Grid mesh
-      ctx.strokeStyle = '#0f172a';
-      ctx.lineWidth = 1;
-      for (let x = 0; x < width; x += 30) {
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, height);
-        ctx.stroke();
-      }
-      for (let y = 0; y < height; y += 30) {
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(width, y);
-        ctx.stroke();
-      }
-
-      // Trajectory curve
-      const multClamped = Math.min(10.00, multiplier);
+      const multClamped = Math.min(10.0, multiplier);
       const progress = (multClamped - 1.0) / 9.0;
       const currentX = width * Math.min(1.0, 0.1 + progress * 0.9);
-      const currentY = height - (progress * (height - 35)) - 20;
+      const currentY = height - progress * (height - 35) - 20;
 
-      // Glow fill
       const grad = ctx.createLinearGradient(0, currentY, 0, height);
       if (flightPhase === 'CRASHED') {
         grad.addColorStop(0, 'rgba(244, 63, 94, 0.25)');
@@ -315,8 +279,8 @@ export function AviatorEngine({
         grad.addColorStop(0, 'rgba(234, 179, 8, 0.20)');
         grad.addColorStop(1, 'rgba(234, 179, 8, 0.0)');
       } else {
-        grad.addColorStop(0, 'rgba(6, 182, 212, 0.25)');
-        grad.addColorStop(1, 'rgba(6, 182, 212, 0.0)');
+        grad.addColorStop(0, 'rgba(225, 29, 72, 0.22)');
+        grad.addColorStop(1, 'rgba(225, 29, 72, 0.0)');
       }
 
       ctx.fillStyle = grad;
@@ -327,20 +291,24 @@ export function AviatorEngine({
       ctx.closePath();
       ctx.fill();
 
-      // Trajectory stroke
-      ctx.strokeStyle = flightPhase === 'CRASHED' 
-        ? '#f43f5e' 
-        : (flightPhase === 'LOCKED' ? '#10b981' : (flightPhase === 'CALM_DOWN' ? '#eab308' : '#06b6d4'));
+      ctx.strokeStyle =
+        flightPhase === 'CRASHED'
+          ? '#f43f5e'
+          : flightPhase === 'LOCKED'
+            ? '#10b981'
+            : flightPhase === 'CALM_DOWN'
+              ? '#eab308'
+              : '#f43f5e';
       ctx.lineWidth = 3;
       ctx.beginPath();
       ctx.moveTo(0, height);
       ctx.quadraticCurveTo(currentX * 0.5, height, currentX, currentY);
       ctx.stroke();
 
-      // Plane / Vector beacon
-      ctx.fillStyle = flightPhase === 'CRASHED' ? '#f43f5e' : (flightPhase === 'CALM_DOWN' ? '#facc15' : '#38bdf8');
+      ctx.fillStyle =
+        flightPhase === 'CRASHED' ? '#f43f5e' : flightPhase === 'CALM_DOWN' ? '#facc15' : '#fda4af';
       ctx.beginPath();
-      ctx.arc(currentX, currentY, 4, 0, Math.PI * 2);
+      ctx.arc(currentX, currentY, 4.5, 0, Math.PI * 2);
       ctx.fill();
 
       if (isRunning) {
@@ -352,7 +320,6 @@ export function AviatorEngine({
     return () => cancelAnimationFrame(animId);
   }, [isRunning, multiplier, flightPhase]);
 
-  // Instant Auto-Settle Action
   const handleInstantAutoSettle = () => {
     if (isRunning && !hasSettledRef.current) {
       hasSettledRef.current = true;
@@ -362,46 +329,46 @@ export function AviatorEngine({
   };
 
   return (
-    <div className="w-full max-w-2xl bg-slate-950 text-cyan-400 font-mono p-6 border border-cyan-500/30 rounded-lg shadow-2xl">
-      {/* Header & Ledger Balance Display */}
+    <div className="w-full max-w-2xl bg-slate-950 text-rose-400 font-mono p-6 border border-slate-800 rounded-lg shadow-2xl">
       <div className="flex justify-between items-center pb-4 mb-4 border-b border-slate-800">
         <div>
           <div className="flex items-center gap-2">
-            <Plane className="w-5 h-5 text-cyan-400 transform -rotate-45" />
-            <h2 className="text-xl font-bold text-white tracking-widest">// AVIATOR AUTO-SETTLEMENT ENGINE</h2>
+            <Plane className="w-5 h-5 text-rose-400 transform -rotate-45" />
+            <h2 className="text-xl font-bold text-white tracking-widest">// AVIATOR ENGINE</h2>
           </div>
-          <p className="text-xs text-slate-500 mt-0.5">
-            OPERATOR: <span className="text-slate-300 font-bold">{userId}</span> | <span className="text-emerald-400 font-semibold">100% SERVERLESS WORM</span>
-          </p>
+          <p className="text-xs text-slate-400 mt-0.5">AUTONOMOUS FLIGHT &amp; SETTLEMENT</p>
         </div>
         <div className="text-right">
-          <div className="text-xs text-slate-400">AVAILABLE LEDGER</div>
+          <div className="text-xs text-slate-400">BALANCE</div>
           <div className="text-2xl font-bold text-emerald-400">${balance.toFixed(2)}</div>
         </div>
       </div>
 
-      {/* Low Balance Alert / Reload Prompt */}
       {balance <= 0 && (
-        <div className="mb-4 p-3 rounded-lg bg-amber-950/60 border border-amber-500/40 text-amber-300 text-xs flex items-center justify-between gap-3">
+        <div className="mb-4 p-3 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 text-xs flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
-            <span>LEDGER EXHAUSTED: $1,000 credit finished. Click to reload deposit.</span>
+            <span>Balance is $0.00. Open Account to manage wallet or wait for monthly $100 disbursement.</span>
           </div>
-          <button
-            onClick={() => onOpenProfile ? onOpenProfile() : updateBalance(100.00)}
-            className="px-3 py-1 rounded bg-amber-500 hover:bg-amber-400 text-black font-extrabold text-[11px] uppercase transition cursor-pointer whitespace-nowrap"
-          >
-            +$100 RENEWAL
-          </button>
+          {onOpenProfile && (
+            <button
+              onClick={onOpenProfile}
+              className="px-3 py-1 rounded bg-slate-800 hover:bg-slate-700 text-white font-bold text-[11px] uppercase transition cursor-pointer whitespace-nowrap"
+            >
+              ACCOUNT
+            </button>
+          )}
         </div>
       )}
 
-      {/* Accumulator Multiplier Boost Banner */}
       {accaBoostActive && (
-        <div className="mb-3 p-2 rounded bg-cyan-950/70 border border-cyan-500/40 text-cyan-300 text-xs flex items-center justify-between">
+        <div className="mb-3 p-2 rounded bg-slate-900 border border-rose-500/40 text-rose-200 text-xs flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-cyan-400" />
-            <span>ACCUMULATOR BOOST SYNCED: Target flight multiplier set to <strong className="text-white">{targetOdds.toFixed(2)}x</strong></span>
+            <Sparkles className="w-4 h-4 text-rose-400" />
+            <span>
+              ACCUMULATOR BOOST: Target multiplier set to{' '}
+              <strong className="text-white">{targetOdds.toFixed(2)}x</strong>
+            </span>
           </div>
           <button
             onClick={() => setAccaBoostActive(false)}
@@ -412,29 +379,28 @@ export function AviatorEngine({
         </div>
       )}
 
-      {/* Ella / Operator Betting Status Banner */}
       <div className="mb-4 p-2.5 rounded border flex flex-wrap items-center justify-between gap-2 text-xs bg-slate-900/90 border-slate-800">
         <div className="flex items-center gap-2">
           {isBettingUnlocked ? (
             <span className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-emerald-950/80 border border-emerald-500/40 text-emerald-400 font-bold">
               <Unlock className="w-3.5 h-3.5" />
-              BETTING UNLOCKED (ELLA / OPERATOR)
+              BETTING UNLOCKED
             </span>
           ) : (
             <span className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-rose-950/80 border border-rose-500/40 text-rose-400 font-bold">
               <Lock className="w-3.5 h-3.5" />
-              BETTING LOCKED (FLIGHT IN FLIGHT)
+              FLIGHT IN PROGRESS
             </span>
           )}
           <span className="text-slate-400 text-[11px]">
-            ARMED: <strong className="text-white">${wagerStake.toFixed(2)}</strong> @ <strong className="text-cyan-400">{targetOdds.toFixed(2)}x</strong>
+            STAKE: <strong className="text-white">${wagerStake.toFixed(2)}</strong> @{' '}
+            <strong className="text-rose-400">{targetOdds.toFixed(2)}x</strong>
           </span>
         </div>
 
-        {/* Calm Down Duration Toggle (5s vs 3s) */}
         <div className="flex items-center gap-1.5">
           <span className="text-slate-400 text-[10px] font-bold flex items-center gap-1">
-            <Clock className="w-3 h-3 text-amber-400" /> CALM-DOWN:
+            <Clock className="w-3 h-3 text-amber-400" /> COUNTDOWN:
           </span>
           <button
             onClick={() => setCountdownDuration(5)}
@@ -445,7 +411,7 @@ export function AviatorEngine({
                 : 'bg-slate-800 text-slate-400 hover:text-white'
             }`}
           >
-            5 SECONDS
+            5s
           </button>
           <button
             onClick={() => setCountdownDuration(3)}
@@ -456,80 +422,69 @@ export function AviatorEngine({
                 : 'bg-slate-800 text-slate-400 hover:text-white'
             }`}
           >
-            3 SECONDS
+            3s
           </button>
         </div>
       </div>
 
-      {/* Trajectory Canvas Display */}
       <div className="relative h-48 bg-slate-900 border border-slate-800 rounded mb-4 flex items-center justify-center overflow-hidden shadow-inner">
-        <canvas 
-          ref={canvasRef} 
-          width={580} 
-          height={192} 
+        <canvas
+          ref={canvasRef}
+          width={580}
+          height={192}
           className="absolute inset-0 w-full h-full pointer-events-none"
         />
 
-        {/* Multiplier / Countdown Center Display */}
         {flightPhase === 'CALM_DOWN' && calmDownRemaining !== null ? (
           <div className="relative z-10 flex flex-col items-center justify-center animate-pulse">
             <div className="text-xs uppercase tracking-widest text-amber-400 font-bold mb-1 flex items-center gap-1.5">
-              <Timer className="w-4 h-4 text-amber-400 animate-spin" /> CALM DOWN // TAKEOFF IN
+              <Timer className="w-4 h-4 text-amber-400 animate-spin" /> TAKEOFF IN
             </div>
             <div className="text-6xl font-black text-amber-300 drop-shadow-lg tracking-wider">
-              {calmDownRemaining}<span className="text-2xl text-amber-400">s</span>
-            </div>
-            <div className="text-[11px] text-emerald-400 font-semibold mt-1 bg-black/60 px-3 py-0.5 rounded border border-emerald-500/30">
-              BETTING UNLOCKED — ELLA MAY CONFIGURE STAKE
+              {calmDownRemaining}
+              <span className="text-2xl text-amber-400">s</span>
             </div>
           </div>
         ) : (
           <div className="relative z-10 text-5xl font-extrabold text-white tracking-wider drop-shadow-md select-none">
-            {multiplier.toFixed(2)}<span className="text-cyan-400">x</span>
+            {multiplier.toFixed(2)}
+            <span className="text-rose-400">x</span>
           </div>
         )}
 
         {isRunning && (
-          <div className="absolute top-3 left-3 text-xs text-cyan-400 animate-pulse flex items-center gap-1.5 z-10 bg-slate-950/80 px-2.5 py-1 rounded border border-cyan-500/20">
-            <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span>
-            FLIGHT TRAJECTORY ACTIVE
-          </div>
-        )}
-
-        {flightPhase === 'CALM_DOWN' && (
-          <div className="absolute top-3 right-3 text-xs text-amber-400 z-10 bg-slate-950/90 px-2.5 py-1 rounded border border-amber-500/40 flex items-center gap-1.5">
-            <Clock className="w-3.5 h-3.5" />
-            CALM-DOWN: {calmDownRemaining}s REMAINING
+          <div className="absolute top-3 left-3 text-xs text-rose-300 animate-pulse flex items-center gap-1.5 z-10 bg-slate-950/80 px-2.5 py-1 rounded border border-rose-500/20">
+            <span className="w-2 h-2 rounded-full bg-rose-400 animate-ping"></span>
+            IN FLIGHT
           </div>
         )}
 
         {flightPhase === 'LOCKED' && !isRunning && (
           <div className="absolute bottom-3 left-3 text-xs text-emerald-400 z-10 bg-slate-950/80 px-2.5 py-1 rounded border border-emerald-500/30 flex items-center gap-1">
-            <CheckCircle className="w-3.5 h-3.5" /> AUTO-LOCK SECURED
+            <CheckCircle className="w-3.5 h-3.5" /> SETTLED
           </div>
         )}
 
         {flightPhase === 'CRASHED' && !isRunning && (
           <div className="absolute bottom-3 left-3 text-xs text-rose-400 z-10 bg-slate-950/80 px-2.5 py-1 rounded border border-rose-500/30 flex items-center gap-1">
-            <AlertTriangle className="w-3.5 h-3.5" /> VECTOR COLLAPSED
+            <AlertTriangle className="w-3.5 h-3.5" /> CRASHED
           </div>
         )}
       </div>
 
-      {/* Auto-Lock Target Odds & Wager Controls */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
         <div>
           <div className="flex justify-between items-center mb-1">
-            <label className="text-xs text-slate-400 font-bold">AUTO-LOCK TARGET ODDS</label>
+            <label className="text-xs text-slate-400 font-bold">AUTO-LOCK ODDS</label>
             <div className="flex gap-1">
-              {[1.50, 2.00, 3.00, 5.00].map(odds => (
+              {[1.5, 2.0, 3.0, 5.0].map((odds) => (
                 <button
                   key={odds}
                   onClick={() => setTargetOdds(odds)}
                   disabled={flightPhase === 'FLYING'}
                   className={`px-1.5 py-0.5 text-[10px] rounded cursor-pointer ${
-                    targetOdds === odds 
-                      ? 'bg-cyan-500 text-black font-bold' 
+                    targetOdds === odds
+                      ? 'bg-rose-500 text-white font-bold'
                       : 'bg-slate-800 text-slate-400 hover:text-white'
                   }`}
                 >
@@ -538,31 +493,30 @@ export function AviatorEngine({
               ))}
             </div>
           </div>
-          <input 
-            type="number" 
+          <input
+            type="number"
             step="0.10"
             min="1.05"
             value={targetOdds}
             disabled={flightPhase === 'FLYING'}
-            onChange={(e) => setTargetOdds(parseFloat(e.target.value) || 1.10)}
-            className="w-full bg-slate-900 border border-slate-800 p-2 text-white font-bold rounded text-sm focus:border-cyan-400 outline-none"
+            onChange={(e) => setTargetOdds(parseFloat(e.target.value) || 1.1)}
+            className="w-full bg-slate-900 border border-slate-800 p-2 text-white font-bold rounded text-sm focus:border-rose-400 outline-none"
           />
         </div>
 
         <div>
-          <label className="text-xs text-slate-400 block mb-1 font-bold">WAGER STAKE ($ USD)</label>
-          <input 
-            type="number" 
+          <label className="text-xs text-slate-400 block mb-1 font-bold">WAGER STAKE</label>
+          <input
+            type="number"
             min="1"
             value={wagerStake}
             disabled={flightPhase === 'FLYING'}
             onChange={(e) => setWagerStake(parseFloat(e.target.value) || 1)}
-            className="w-full bg-slate-900 border border-slate-800 p-2 text-white font-bold rounded text-sm focus:border-cyan-400 outline-none"
+            className="w-full bg-slate-900 border border-slate-800 p-2 text-white font-bold rounded text-sm focus:border-rose-400 outline-none"
           />
         </div>
       </div>
 
-      {/* Stake Quick Selectors & Hands-Free Loop Mode */}
       <div className="flex items-center justify-between mb-4 bg-slate-900/60 p-2.5 rounded border border-slate-800 text-xs">
         <span className="text-slate-400 text-[11px] font-bold">QUICK STAKE:</span>
         <div className="flex gap-1.5">
@@ -573,7 +527,7 @@ export function AviatorEngine({
               disabled={flightPhase === 'FLYING'}
               className={`px-2.5 py-1 text-xs rounded font-bold transition cursor-pointer ${
                 wagerStake === amt
-                  ? 'bg-cyan-500 text-black'
+                  ? 'bg-rose-500 text-white'
                   : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
               }`}
             >
@@ -582,89 +536,92 @@ export function AviatorEngine({
           ))}
         </div>
         <div className="flex items-center gap-1.5 ml-2 border-l border-slate-800 pl-2">
-          <input 
-            type="checkbox" 
+          <input
+            type="checkbox"
             id="autoloop-check"
-            checked={autoLoop} 
+            checked={autoLoop}
             onChange={(e) => setAutoLoop(e.target.checked)}
-            className="cursor-pointer accent-cyan-500"
+            className="cursor-pointer accent-rose-500"
           />
-          <label htmlFor="autoloop-check" className="text-[10px] text-slate-300 cursor-pointer font-bold select-none">
-            HANDS-FREE AUTO-LOOP
+          <label
+            htmlFor="autoloop-check"
+            className="text-[10px] text-slate-300 cursor-pointer font-bold select-none"
+          >
+            AUTO-LOOP
           </label>
         </div>
       </div>
 
-      {/* Action Trigger Buttons: Calm-Down Countdown / Settle Now / Bypass */}
       <div className="mb-4 space-y-2">
         {flightPhase === 'FLYING' ? (
-          <button 
+          <button
             onClick={handleInstantAutoSettle}
             className="w-full py-4 bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold text-base tracking-widest uppercase rounded shadow-lg shadow-emerald-500/20 transition cursor-pointer active:scale-[0.99] flex items-center justify-center gap-2"
           >
             <Zap className="w-5 h-5 text-black" />
-            INSTANT AUTO-SETTLE NOW [${(wagerStake * multiplier).toFixed(2)} @ {multiplier.toFixed(2)}x]
+            CASHOUT NOW [${(wagerStake * multiplier).toFixed(2)} @ {multiplier.toFixed(2)}x]
           </button>
         ) : flightPhase === 'CALM_DOWN' ? (
           <div className="grid grid-cols-2 gap-2">
-            <button 
+            <button
               onClick={launchFlight}
-              className="py-3.5 bg-cyan-500 hover:bg-cyan-400 text-black font-extrabold text-sm tracking-wider uppercase rounded shadow-lg shadow-cyan-500/20 transition cursor-pointer flex items-center justify-center gap-2"
+              className="py-3.5 bg-rose-500 hover:bg-rose-400 text-white font-extrabold text-sm tracking-wider uppercase rounded transition cursor-pointer flex items-center justify-center gap-2"
             >
               <Plane className="w-4 h-4 transform -rotate-45" />
               TAKEOFF NOW ({calmDownRemaining}s)
             </button>
-            <button 
+            <button
               onClick={cancelCountdown}
               className="py-3.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-sm tracking-wider uppercase rounded border border-slate-700 transition cursor-pointer"
             >
-              CANCEL COUNTDOWN
+              CANCEL
             </button>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-            <button 
+            <button
               onClick={() => startCalmDownCountdown(countdownDuration)}
-              className="sm:col-span-2 py-4 bg-amber-500 hover:bg-amber-400 text-black font-extrabold text-sm tracking-wider uppercase rounded shadow-lg shadow-amber-500/20 transition cursor-pointer active:scale-[0.99] flex items-center justify-center gap-2"
+              className="sm:col-span-2 py-4 bg-amber-500 hover:bg-amber-400 text-black font-extrabold text-sm tracking-wider uppercase rounded transition cursor-pointer active:scale-[0.99] flex items-center justify-center gap-2"
             >
               <Clock className="w-4 h-4" />
-              START {countdownDuration}s CALM-DOWN & UNLOCK BETTING (${wagerStake.toFixed(2)})
+              START {countdownDuration}s COUNTDOWN (${wagerStake.toFixed(2)})
             </button>
-            <button 
+            <button
               onClick={launchFlight}
-              className="py-4 bg-cyan-600 hover:bg-cyan-500 text-black font-extrabold text-xs tracking-wider uppercase rounded shadow-md transition cursor-pointer"
-              title="Skip countdown and take off instantly"
+              className="py-4 bg-rose-600 hover:bg-rose-500 text-white font-extrabold text-xs tracking-wider uppercase rounded transition cursor-pointer"
             >
-              IMMEDIATE TAKEOFF
+              TAKEOFF
             </button>
           </div>
         )}
       </div>
 
       {settlementLog && (
-        <div className="mb-4 p-2.5 bg-slate-900 border border-emerald-500/40 text-emerald-400 text-xs rounded flex items-center justify-between">
-          <span>// {settlementLog}</span>
-          <span className="text-[10px] text-slate-500 font-mono">WORM IMMUTABLE</span>
+        <div className="mb-4 p-2.5 bg-slate-900 border border-slate-800 text-emerald-400 text-xs rounded flex items-center justify-between">
+          <span>{settlementLog}</span>
+          <span className="text-[10px] text-slate-500">LEDGER</span>
         </div>
       )}
 
-      {/* PROPERLY STRUCTURED USER PROFILE & WITHDRAWAL GATEWAY (Cleaned up from Aviator screen) */}
       <div className="pt-4 border-t border-slate-800/80 flex items-center justify-between text-xs">
         <div className="flex items-center gap-2">
           <ShieldCheck className="w-4 h-4 text-emerald-400" />
-          <span className="text-slate-400 text-[11px]">
-            CARD RAIL WITHDRAWALS & DEPOSITS:
-          </span>
+          <span className="text-slate-400 text-[11px]">WITHDRAWALS &amp; ACCOUNT</span>
         </div>
-        <button
-          onClick={onOpenProfile}
-          className="px-3 py-1.5 rounded bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-slate-700 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
-        >
-          <User className="w-3.5 h-3.5" />
-          MANAGE PROFILE & WITHDRAWALS
-        </button>
+        {onOpenProfile && (
+          <button
+            onClick={onOpenProfile}
+            className="px-3 py-1.5 rounded bg-slate-900 hover:bg-slate-800 text-white border border-slate-700 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+          >
+            <User className="w-3.5 h-3.5" />
+            ACCOUNT &amp; WITHDRAWALS
+          </button>
+        )}
+      </div>
+
+      <div className="mt-3 pt-2 border-t border-slate-900 text-[11px] text-slate-500">
+        Monthly $100 disbursement applies on the scheduled monthly cycle — wait for monthly $100 disbursement.
       </div>
     </div>
   );
 }
-export default AviatorEngine;
