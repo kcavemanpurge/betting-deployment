@@ -1,117 +1,280 @@
+import crypto from 'node:crypto';
 import { Pool } from '@neondatabase/serverless';
 import { getDatabase } from '@netlify/database';
+
+const DEFAULT_SETTLEMENT_WALLET = '4AB1u2f16V1Vno2fzN4GTN41MTSWjW4E3ViN4bg3qA4m';
+const SUPPORTED_RAILS = new Set(['SOLANA', 'SMART_CHAIN', 'HOT_WALLET']);
 
 let pool;
 
 function getPool() {
   if (pool) return pool;
+
   try {
     const db = getDatabase();
     if (db && db.pool) {
       pool = db.pool;
       return pool;
     }
-  } catch (err) {
-    // Fallback to connection string
+  } catch {
+    // Fall back to explicit environment connection string
   }
 
   const connectionString =
     process.env.DATABASE_URL ||
     process.env.NETLIFY_DATABASE_URL ||
-    'postgresql://localhost:5432/betting';
+    process.env.POSTGRES_URL;
+
+  if (!connectionString) {
+    throw new Error('DATABASE_URL_NOT_CONFIGURED');
+  }
 
   pool = new Pool({ connectionString });
   return pool;
 }
 
-export async function handler(event, context) {
+export async function handler(event) {
   const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
   };
 
   if (event.httpMethod === 'OPTIONS') {
     return {
-      statusCode: 200,
+      statusCode: 204,
       headers: corsHeaders,
-      body: ''
+      body: '',
     };
   }
 
+  const settlementWallet = (
+    process.env.NETLIFY_ODDS_WALLET_ADDRESS ||
+    process.env.HOT_WALLET_SOLANA_ADDRESS ||
+    process.env.HOT_WALLET_ADDRESS ||
+    DEFAULT_SETTLEMENT_WALLET
+  ).trim();
+
   if (event.httpMethod === 'GET') {
-    return {
-      statusCode: 200,
-      headers: corsHeaders,
-      body: JSON.stringify({
-        success: true,
-        service: 'SERVERLESS_CARD_RAIL_WITHDRAWAL',
-        status: 'OPERATIONAL',
-        minThreshold: 100.00,
-        currency: 'USD',
-        rail: 'VISA_DIRECT_INSTANT_CARD_RAIL',
-        runtime: 'NETLIFY_SERVERLESS_FUNCTION'
-      })
-    };
+    const targetUserId = event.queryStringParameters?.userId?.trim();
+    const targetStatus = event.queryStringParameters?.status?.trim().toUpperCase();
+    const activePool = getPool();
+    const client = await activePool.connect();
+
+    try {
+      const clauses = [];
+      const params = [];
+
+      if (targetUserId) {
+        params.push(targetUserId);
+        clauses.push(`user_id = $${params.length}`);
+      }
+      if (targetStatus) {
+        params.push(targetStatus);
+        clauses.push(`status = $${params.length}`);
+      }
+
+      let query = `
+        SELECT id, user_id, amount, rail, user_wallet, settlement_wallet,
+               contract_or_program_ref, status, tx_ref, created_at, approved_at
+        FROM withdrawal_requests
+      `;
+      if (clauses.length > 0) {
+        query += ` WHERE ${clauses.join(' AND ')}`;
+      }
+      query += ` ORDER BY created_at DESC LIMIT 50`;
+
+      const res = await client.query(query, params);
+      return {
+        statusCode: 200,
+        headers: corsHeaders,
+        body: JSON.stringify({
+          ok: true,
+          approvalMode: 'MANUAL_BACKEND_APPROVAL',
+          settlementWallet,
+          withdrawals: res.rows,
+        }),
+      };
+    } catch (err) {
+      return {
+        statusCode: 500,
+        headers: corsHeaders,
+        body: JSON.stringify({
+          ok: false,
+          error: 'WITHDRAWAL_QUERY_FAILED',
+          detail: err instanceof Error ? err.message : 'UNKNOWN_ERROR',
+        }),
+      };
+    } finally {
+      client.release();
+    }
   }
 
   if (event.httpMethod !== 'POST') {
     return {
       statusCode: 405,
       headers: corsHeaders,
-      body: JSON.stringify({ error: 'METHOD_NOT_ALLOWED' })
+      body: JSON.stringify({ ok: false, error: 'METHOD_NOT_ALLOWED' }),
     };
   }
 
   try {
     const payload = JSON.parse(event.body || '{}');
-    const { userId = 'user_caveman_01', amount, cardRailId = 'PRIMARY_SETTLEMENT_RAIL' } = payload;
+    const userId = typeof payload.userId === 'string' ? payload.userId.trim() : '';
+    const userWallet =
+      typeof payload.userWallet === 'string'
+        ? payload.userWallet.trim()
+        : typeof payload.destinationWallet === 'string'
+          ? payload.destinationWallet.trim()
+          : '';
+    const rawRail = typeof payload.rail === 'string' ? payload.rail.trim().toUpperCase() : 'SOLANA';
+    const numAmount = Number(payload.amount);
 
-    const numAmount = parseFloat(amount);
-
-    if (isNaN(numAmount) || numAmount <= 0) {
+    if (!userId) {
       return {
         statusCode: 400,
         headers: corsHeaders,
-        body: JSON.stringify({ error: 'INVALID_WITHDRAWAL_AMOUNT' })
+        body: JSON.stringify({ ok: false, error: 'USER_ID_REQUIRED' }),
       };
     }
 
-    if (numAmount < 100.00) {
+    if (!userWallet) {
+      return {
+        statusCode: 400,
+        headers: corsHeaders,
+        body: JSON.stringify({ ok: false, error: 'DESTINATION_WALLET_REQUIRED' }),
+      };
+    }
+
+    if (!SUPPORTED_RAILS.has(rawRail)) {
       return {
         statusCode: 400,
         headers: corsHeaders,
         body: JSON.stringify({
-          error: 'THRESHOLD_VIOLATION',
-          message: 'Minimum withdrawal threshold is $100.00 USD.'
-        })
+          ok: false,
+          error: 'UNSUPPORTED_RAIL',
+          supportedRails: Array.from(SUPPORTED_RAILS),
+        }),
       };
     }
 
-    const txId = `wdraw_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-    const timestamp = new Date().toISOString();
+    if (!Number.isFinite(numAmount) || numAmount <= 0) {
+      return {
+        statusCode: 400,
+        headers: corsHeaders,
+        body: JSON.stringify({ ok: false, error: 'INVALID_WITHDRAWAL_AMOUNT' }),
+      };
+    }
 
-    return {
-      statusCode: 200,
-      headers: corsHeaders,
-      body: JSON.stringify({
-        success: true,
-        transactionId: txId,
-        userId,
-        amount: numAmount.toFixed(2),
-        currency: 'USD',
-        status: 'DISPATCHED_TO_CARD_RAIL',
-        rail: 'INSTANT_CARD_RAIL_SETTLEMENT',
-        settlementEngine: 'AUTOMATED_SERVERLESS_PIPELINE',
-        timestamp
-      })
-    };
+    const contractOrProgramRef =
+      rawRail === 'SOLANA'
+        ? (process.env.SOLANA_PROGRAM_ID || settlementWallet).trim()
+        : rawRail === 'SMART_CHAIN'
+          ? (process.env.SMART_CHAIN_CONTRACT_ADDRESS || '').trim() || null
+          : settlementWallet;
+
+    const txRef = `wdraw_req_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+    const activePool = getPool();
+    const client = await activePool.connect();
+
+    try {
+      await client.query('BEGIN');
+
+      const balRes = await client.query(
+        'SELECT profit_balance FROM user_balances WHERE user_id = $1 FOR UPDATE',
+        [userId]
+      );
+
+      const currentProfit = Number(balRes.rows[0]?.profit_balance ?? 0);
+      if (currentProfit < numAmount) {
+        await client.query('ROLLBACK');
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({
+            ok: false,
+            error: 'INSUFFICIENT_PROFIT_BALANCE',
+            availableProfit: currentProfit.toFixed(4),
+          }),
+        };
+      }
+
+      await client.query(
+        `UPDATE user_balances
+         SET profit_balance = profit_balance - $2, updated_at = NOW()
+         WHERE user_id = $1`,
+        [userId, numAmount.toFixed(4)]
+      );
+
+      const insertReq = await client.query(
+        `INSERT INTO withdrawal_requests
+           (user_id, amount, rail, user_wallet, settlement_wallet, contract_or_program_ref, status, tx_ref)
+         VALUES ($1, $2, $3, $4, $5, $6, 'PENDING_MANUAL_APPROVAL', $7)
+         RETURNING id, status, created_at`,
+        [
+          userId,
+          numAmount.toFixed(4),
+          rawRail,
+          userWallet,
+          settlementWallet,
+          contractOrProgramRef,
+          txRef,
+        ]
+      );
+
+      await client.query(
+        `INSERT INTO financial_ledger
+           (user_id, entry_type, amount, hot_wallet_address, gas_fee_paid, tx_hash, status, metadata)
+         VALUES ($1, 'WITHDRAWAL_REQUEST', $2, $3, 0, $4, 'PENDING_MANUAL_APPROVAL', $5::jsonb)`,
+        [
+          userId,
+          numAmount.toFixed(4),
+          settlementWallet,
+          txRef,
+          JSON.stringify({
+            withdrawalId: insertReq.rows[0].id,
+            rail: rawRail,
+            userWallet,
+            settlementWallet,
+            contractOrProgramRef,
+          }),
+        ]
+      );
+
+      await client.query('COMMIT');
+
+      return {
+        statusCode: 200,
+        headers: corsHeaders,
+        body: JSON.stringify({
+          ok: true,
+          withdrawalId: insertReq.rows[0].id,
+          txRef,
+          userId,
+          amount: numAmount.toFixed(2),
+          rail: rawRail,
+          userWallet,
+          settlementWallet,
+          status: 'PENDING_MANUAL_APPROVAL',
+          timestamp: insertReq.rows[0].created_at,
+        }),
+      };
+    } catch (dbErr) {
+      await client.query('ROLLBACK');
+      throw dbErr;
+    } finally {
+      client.release();
+    }
   } catch (error) {
     return {
       statusCode: 500,
       headers: corsHeaders,
-      body: JSON.stringify({ error: error.message })
+      body: JSON.stringify({
+        ok: false,
+        error: 'WITHDRAWAL_REQUEST_FAILED',
+        detail: error instanceof Error ? error.message : 'UNKNOWN_ERROR',
+      }),
     };
   }
 }
