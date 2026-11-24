@@ -21,7 +21,7 @@ function generateCrashPoint() {
   return Math.min(25.0, Number(Math.max(1.01, val).toFixed(2)));
 }
 
-export function Aviator({
+export function AviatorEngine({
   userId = '',
   initialBalance = 0,
   externalBalance,
@@ -625,3 +625,6 @@ export function Aviator({
     </div>
   );
 }
+
+export const Aviator = AviatorEngine;
+export default AviatorEngine;
