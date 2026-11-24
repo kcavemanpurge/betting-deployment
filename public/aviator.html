@@ -2,14 +2,290 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta http-equiv="refresh" content="0; url=/?mode=aviator" />
-  <title>Aviator Auto-Engine</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Aviator</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0b101b;
+      color: #eef2ff;
+      margin: 0;
+      padding: 20px;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    nav {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+    nav a {
+      background: #162033;
+      color: #eef2ff;
+      border: 1px solid #2b3b5a;
+      padding: 8px 14px;
+      border-radius: 6px;
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    nav a:hover, nav a.active {
+      background: #1e293b;
+      border-color: #f43f5e;
+      color: #fda4af;
+    }
+    .shell {
+      max-width: 720px;
+      width: 100%;
+      background: #111827;
+      border: 1px solid #1f2937;
+      border-radius: 8px;
+      padding: 20px;
+    }
+    .top-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 14px;
+    }
+    .bal {
+      font-size: 20px;
+      font-weight: 800;
+      color: #34d399;
+    }
+    canvas {
+      width: 100%;
+      height: 240px;
+      background: #0b101b;
+      border: 1px solid #1f2937;
+      border-radius: 8px;
+      display: block;
+    }
+    .mult-readout {
+      font-size: 40px;
+      font-weight: 900;
+      margin: 14px 0;
+      color: #f43f5e;
+    }
+    .controls {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    label {
+      display: block;
+      font-size: 12px;
+      color: #cbd5e1;
+      margin-bottom: 4px;
+    }
+    input {
+      width: 100%;
+      background: #162033;
+      border: 1px solid #2b3b5a;
+      color: #ffffff;
+      padding: 9px 12px;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+    button.primary {
+      width: 100%;
+      padding: 12px;
+      border-radius: 6px;
+      border: none;
+      font-size: 14px;
+      font-weight: 800;
+      cursor: pointer;
+      background: #e11d48;
+      color: #ffffff;
+    }
+    button.cashout {
+      background: #059669;
+      color: #ffffff;
+    }
+    .log {
+      margin-top: 12px;
+      font-size: 13px;
+      color: #34d399;
+      min-height: 20px;
+    }
+    footer {
+      margin-top: auto;
+      padding-top: 24px;
+      border-top: 1px solid #1f2937;
+      font-size: 12px;
+      color: #94a3b8;
+    }
+  </style>
 </head>
-<body style="background:#030712; color:#38bdf8; font-family:monospace; padding:40px; text-align:center;">
-  <h2>Redirecting to Aviator Sovereign Cockpit...</h2>
-  <p><a href="/?mode=aviator" style="color:#38bdf8;">Click here if not redirected automatically.</a></p>
+<body>
+  <nav aria-label="Primary Navigation">
+    <a href="/">Home</a>
+    <a href="/aviator.html" class="active">Aviator</a>
+    <a href="/sports.html">Sports &amp; Live Events</a>
+    <a href="/account.html">Account &amp; Withdrawals</a>
+  </nav>
+
+  <div class="shell">
+    <div class="top-bar">
+      <h2 style="margin:0;">Aviator</h2>
+      <div class="bal" id="aviator-bal">$0.00</div>
+    </div>
+
+    <canvas id="flight-canvas" width="660" height="240"></canvas>
+    <div class="mult-readout" id="mult-text">1.00x</div>
+
+    <div class="controls">
+      <div>
+        <label for="stake-input">Stake ($)</label>
+        <input id="stake-input" type="number" min="0.01" step="0.01" value="10.00" />
+      </div>
+      <div>
+        <label for="target-input">Auto Cashout (x)</label>
+        <input id="target-input" type="number" min="1.05" step="0.05" value="2.00" />
+      </div>
+    </div>
+
+    <button type="button" class="primary" id="flight-btn">Launch Flight</button>
+    <div class="log" id="flight-log"></div>
+  </div>
+
+  <footer>
+    Monthly $100 disbursement applies on the scheduled monthly cycle — wait for monthly $100 disbursement.
+  </footer>
+
   <script>
-    window.location.href = '/?mode=aviator';
+    const ACCOUNT_KEY = 'sovereign_account_state_v1';
+
+    function getState() {
+      try {
+        const raw = localStorage.getItem(ACCOUNT_KEY) || sessionStorage.getItem(ACCOUNT_KEY);
+        return raw ? JSON.parse(raw) : { profitBalance: 0 };
+      } catch {
+        return { profitBalance: 0 };
+      }
+    }
+
+    function setProfitBalance(val) {
+      const st = getState();
+      st.profitBalance = Number(Math.max(0, val).toFixed(2));
+      const raw = JSON.stringify(st);
+      localStorage.setItem(ACCOUNT_KEY, raw);
+      sessionStorage.setItem(ACCOUNT_KEY, raw);
+      document.getElementById('aviator-bal').textContent = `$${st.profitBalance.toFixed(2)}`;
+    }
+
+    let running = false;
+    let currentMult = 1.0;
+    let crashAt = 1.0;
+    let rafId = null;
+
+    function drawCurve() {
+      const canvas = document.getElementById('flight-canvas');
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#0b101b';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      const clamped = Math.min(10, currentMult);
+      const progress = (clamped - 1) / 9;
+      const x = canvas.width * Math.min(1, 0.1 + progress * 0.9);
+      const y = canvas.height - progress * (canvas.height - 30) - 15;
+
+      ctx.strokeStyle = '#f43f5e';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(0, canvas.height);
+      ctx.quadraticCurveTo(x * 0.5, canvas.height, x, y);
+      ctx.stroke();
+    }
+
+    async function cashout(mult) {
+      if (!running) return;
+      running = false;
+      cancelAnimationFrame(rafId);
+
+      const stake = Number(document.getElementById('stake-input').value) || 0;
+      const payout = Number((stake * mult).toFixed(2));
+      const bal = Number(getState().profitBalance || 0);
+      setProfitBalance(bal + payout);
+
+      const btn = document.getElementById('flight-btn');
+      btn.textContent = 'Launch Flight';
+      btn.className = 'primary';
+      document.getElementById('flight-log').textContent = `Cashed out @ ${mult.toFixed(2)}x (+$${payout.toFixed(2)})`;
+
+      try {
+        await fetch('/.netlify/functions/settle', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sessionId: `aviator_${Date.now()}`,
+            userId: getState().email || 'account',
+            wagerAmount: stake,
+            multiplier: mult
+          })
+        });
+      } catch {}
+    }
+
+    function step() {
+      if (!running) return;
+      currentMult = Number((currentMult + 0.015).toFixed(2));
+      document.getElementById('mult-text').textContent = `${currentMult.toFixed(2)}x`;
+      drawCurve();
+
+      const target = Number(document.getElementById('target-input').value) || 0;
+      if (target > 1 && currentMult >= target) {
+        cashout(target);
+        return;
+      }
+
+      if (currentMult >= crashAt) {
+        running = false;
+        cancelAnimationFrame(rafId);
+        const btn = document.getElementById('flight-btn');
+        btn.textContent = 'Launch Flight';
+        btn.className = 'primary';
+        document.getElementById('flight-log').textContent = `Crashed at ${crashAt.toFixed(2)}x`;
+        return;
+      }
+
+      rafId = requestAnimationFrame(step);
+    }
+
+    document.getElementById('flight-btn').addEventListener('click', () => {
+      if (running) {
+        cashout(currentMult);
+        return;
+      }
+
+      const stake = Number(document.getElementById('stake-input').value) || 0;
+      const bal = Number(getState().profitBalance || 0);
+      if (stake <= 0 || bal < stake) {
+        document.getElementById('flight-log').textContent = 'Insufficient balance for stake.';
+        return;
+      }
+
+      setProfitBalance(bal - stake);
+      const r = Math.random();
+      crashAt = r < 0.04 ? 1.0 : Math.min(25, Number(Math.max(1.01, 0.96 / (1 - r)).toFixed(2)));
+      currentMult = 1.0;
+      running = true;
+      document.getElementById('flight-log').textContent = '';
+      document.getElementById('mult-text').textContent = '1.00x';
+
+      const btn = document.getElementById('flight-btn');
+      btn.textContent = 'Cash Out';
+      btn.className = 'primary cashout';
+
+      rafId = requestAnimationFrame(step);
+    });
+
+    setProfitBalance(Number(getState().profitBalance || 0));
+    drawCurve();
   </script>
 </body>
 </html>
