@@ -1,94 +1,100 @@
 import { Pool } from '@neondatabase/serverless';
 import { getDatabase } from '@netlify/database';
 
+const DEFAULT_SETTLEMENT_WALLET = '4AB1u2f16V1Vno2fzN4GTN41MTSWjW4E3ViN4bg3qA4m';[span_4](start_span)[span_4](end_span)
+
 let pool;
 
 function getPool() {
   if (pool) return pool;
+
   try {
     const db = getDatabase();
     if (db && db.pool) {
       pool = db.pool;
       return pool;
     }
-  } catch (err) {
-    // Ignore and fallback to direct connection string
+  } catch {
+    // Fall back to explicit environment connection string
   }
 
   const connectionString =
     process.env.DATABASE_URL ||
     process.env.NETLIFY_DATABASE_URL ||
-    'postgresql://localhost:5432/betting';
+    process.env.POSTGRES_URL;
+
+  if (!connectionString) {
+    throw new Error('DATABASE_URL_NOT_CONFIGURED');
+  }
 
   pool = new Pool({ connectionString });
   return pool;
 }
 
-// Fallback in-memory ledger if database is still provisioning on initial cold start
-const inMemoryFallbackLedger = [];
-
-export async function handler(event, context) {
+export async function handler(event) {
   const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
   };
 
   if (event.httpMethod === 'OPTIONS') {
     return {
-      statusCode: 200,
+      statusCode: 204,
       headers: corsHeaders,
-      body: ''
+      body: '',
     };
   }
 
-  // GET: Fetch recent settlement ledger records
-  if (event.httpMethod === 'GET') {
-    const targetUserId = event.queryStringParameters?.userId;
-    try {
-      const activePool = getPool();
-      const client = await activePool.connect();
-      try {
-        let query = `
-          SELECT id, session_id, user_id, wager_amount, multiplier, payout_amount, status, created_at 
-          FROM bet_settlements 
-        `;
-        const params = [];
-        if (targetUserId) {
-          query += ` WHERE user_id = $1`;
-          params.push(targetUserId);
-        }
-        query += ` ORDER BY created_at DESC LIMIT 50`;
+  const settlementWallet = (
+    process.env.NETLIFY_ODDS_WALLET_ADDRESS ||
+    process.env.HOT_WALLET_ADDRESS ||
+    DEFAULT_SETTLEMENT_WALLET
+  ).trim();[span_5](start_span)[span_5](end_span)
 
-        const res = await client.query(query, params);
-        return {
-          statusCode: 200,
-          headers: corsHeaders,
-          body: JSON.stringify({
-            success: true,
-            settlements: res.rows,
-            source: 'POSTGRES_IMMUTABLE_LEDGER'
-          })
-        };
-      } finally {
-        client.release();
+  if (event.httpMethod === 'GET') {
+    const targetUserId = event.queryStringParameters?.userId?.trim();
+    const activePool = getPool();
+    const client = await activePool.connect();
+
+    try {
+      let query = `
+        SELECT id, session_id, user_id, wager_amount, multiplier, payout_amount, status, created_at
+        FROM bet_settlements
+      `;
+      const params = [];
+
+      if (targetUserId) {
+        query += ` WHERE user_id = $1`;
+        params.push(targetUserId);
       }
-    } catch (err) {
-      // Fallback for cold start or pending migration
-      const filtered = targetUserId
-        ? inMemoryFallbackLedger.filter((item) => item.user_id === targetUserId)
-        : inMemoryFallbackLedger;
+
+      query += ` ORDER BY created_at DESC LIMIT 50`;
+      const res = await client.query(query, params);
+
       return {
         statusCode: 200,
         headers: corsHeaders,
         body: JSON.stringify({
-          success: true,
-          settlements: filtered,
-          source: 'SESSION_LEDGER_BUFFER',
-          note: err.message
-        })
+          ok: true,
+          settlements: res.rows,
+          settlementWallet,
+          source: 'POSTGRES_LEDGER',
+        }),
       };
+    } catch (err) {
+      return {
+        statusCode: 500,
+        headers: corsHeaders,
+        body: JSON.stringify({
+          ok: false,
+          error: 'LEDGER_QUERY_FAILED',
+          detail: err instanceof Error ? err.message : 'UNKNOWN_ERROR',
+        }),
+      };
+    } finally {
+      client.release();
     }
   }
 
@@ -96,144 +102,126 @@ export async function handler(event, context) {
     return {
       statusCode: 405,
       headers: corsHeaders,
-      body: JSON.stringify({ error: 'METHOD_NOT_ALLOWED' })
+      body: JSON.stringify({ ok: false, error: 'METHOD_NOT_ALLOWED' }),
     };
   }
 
   try {
     const payload = JSON.parse(event.body || '{}');
-    const { sessionId, userId, wagerAmount, multiplier } = payload;
+    const sessionId = typeof payload.sessionId === 'string' ? payload.sessionId.trim() : '';
+    const userId = typeof payload.userId === 'string' ? payload.userId.trim() : '';
+    const numWager = Number(payload.wagerAmount);
+    const numMultiplier = Number(payload.multiplier);
+    const rail = typeof payload.rail === 'string' ? payload.rail.trim().toUpperCase() : 'HOT_WALLET';
+    const txRef =
+      typeof payload.txHash === 'string' && payload.txHash.trim()
+        ? payload.txHash.trim()
+        : `settle_${sessionId}`;
 
-    if (!sessionId || !userId || wagerAmount === undefined || multiplier === undefined) {
+    if (!sessionId || !userId || payload.wagerAmount === undefined || payload.multiplier === undefined) {
       return {
         statusCode: 400,
         headers: corsHeaders,
-        body: JSON.stringify({ error: 'MISSING_REQUIRED_PAYLOAD_FIELDS' })
+        body: JSON.stringify({ ok: false, error: 'MISSING_REQUIRED_PAYLOAD_FIELDS' }),
       };
     }
 
-    const numWager = parseFloat(wagerAmount);
-    const numMultiplier = parseFloat(multiplier);
-
-    if (isNaN(numWager) || numWager <= 0 || isNaN(numMultiplier) || numMultiplier < 1.0) {
+    if (!Number.isFinite(numWager) || numWager <= 0 || !Number.isFinite(numMultiplier) || numMultiplier < 1.0) {
       return {
         statusCode: 400,
         headers: corsHeaders,
-        body: JSON.stringify({ error: 'INVALID_NUMERIC_PARAMETERS' })
+        body: JSON.stringify({ ok: false, error: 'INVALID_NUMERIC_PARAMETERS' }),
       };
     }
 
-    // Try PostgreSQL atomic execution block
+    const activePool = getPool();
+    const client = await activePool.connect();
+
     try {
-      const activePool = getPool();
-      const client = await activePool.connect();
+      await client.query('BEGIN');
 
-      try {
-        await client.query('BEGIN');
+      const checkRes = await client.query(
+        'SELECT id FROM bet_settlements WHERE session_id = $1 FOR UPDATE',
+        [sessionId]
+      );
 
-        // Ensure table exists defensively
-        await client.query(`
-          CREATE TABLE IF NOT EXISTS bet_settlements (
-            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            session_id VARCHAR(64) UNIQUE NOT NULL,
-            user_id VARCHAR(64) NOT NULL,
-            wager_amount NUMERIC(12, 2) NOT NULL CHECK (wager_amount >= 0),
-            multiplier NUMERIC(8, 4) NOT NULL CHECK (multiplier >= 1.0000),
-            payout_amount NUMERIC(12, 2) GENERATED ALWAYS AS (wager_amount * multiplier) STORED,
-            status VARCHAR(20) NOT NULL DEFAULT 'SETTLED' CHECK (status IN ('PENDING', 'SETTLED', 'REJECTED')),
-            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-          );
-          CREATE INDEX IF NOT EXISTS idx_user_settlements ON bet_settlements(user_id, status);
-        `);
-
-        // Duplicate session check
-        const checkRes = await client.query(
-          'SELECT id FROM bet_settlements WHERE session_id = $1 FOR UPDATE',
-          [sessionId]
-        );
-
-        if (checkRes.rows.length > 0) {
-          await client.query('ROLLBACK');
-          return {
-            statusCode: 409,
-            headers: corsHeaders,
-            body: JSON.stringify({ error: 'SESSION_ALREADY_SETTLED' })
-          };
-        }
-
-        // Record settlement
-        const insertRes = await client.query(
-          `INSERT INTO bet_settlements (session_id, user_id, wager_amount, multiplier, status)
-           VALUES ($1, $2, $3, $4, 'SETTLED')
-           RETURNING id, payout_amount, created_at`,
-          [sessionId, userId, numWager, numMultiplier]
-        );
-
-        await client.query('COMMIT');
-
-        const record = insertRes.rows[0];
-        return {
-          statusCode: 200,
-          headers: corsHeaders,
-          body: JSON.stringify({
-            success: true,
-            settlementId: record.id,
-            payoutAmount: parseFloat(record.payout_amount).toFixed(2),
-            timestamp: record.created_at,
-            ledger: 'POSTGRES_IMMUTABLE_CHAIN'
-          })
-        };
-      } catch (dbErr) {
+      if (checkRes.rows.length > 0) {
         await client.query('ROLLBACK');
-        throw dbErr;
-      } finally {
-        client.release();
-      }
-    } catch (dbError) {
-      console.warn('Database settlement encountered issue, using fast failover buffer:', dbError.message);
-
-      // Verify no duplicate in fallback
-      const exists = inMemoryFallbackLedger.find((item) => item.session_id === sessionId);
-      if (exists) {
         return {
           statusCode: 409,
           headers: corsHeaders,
-          body: JSON.stringify({ error: 'SESSION_ALREADY_SETTLED' })
+          body: JSON.stringify({ ok: false, error: 'SESSION_ALREADY_SETTLED' }),
         };
       }
 
-      const calculatedPayout = (numWager * numMultiplier).toFixed(2);
-      const fallbackRecord = {
-        id: `mock-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        session_id: sessionId,
-        user_id: userId,
-        wager_amount: numWager.toFixed(2),
-        multiplier: numMultiplier.toFixed(4),
-        payout_amount: calculatedPayout,
-        status: 'SETTLED',
-        created_at: new Date().toISOString()
-      };
+      const insertRes = await client.query(
+        `INSERT INTO bet_settlements (session_id, user_id, wager_amount, multiplier, status)
+         VALUES ($1, $2, $3, $4, 'SETTLED')
+         RETURNING id, payout_amount, created_at`,
+        [sessionId, userId, numWager.toFixed(2), numMultiplier.toFixed(4)]
+      );
 
-      inMemoryFallbackLedger.unshift(fallbackRecord);
+      const record = insertRes.rows[0];
+      const payoutNum = Number(record.payout_amount);
+
+      await client.query(
+        `INSERT INTO user_balances (user_id, promo_balance, profit_balance, updated_at)
+         VALUES ($1, 0, $2, NOW())
+         ON CONFLICT (user_id)
+         DO UPDATE SET
+           profit_balance = user_balances.profit_balance + EXCLUDED.profit_balance,
+           updated_at = NOW()`,
+        [userId, payoutNum.toFixed(4)]
+      );
+
+      await client.query(
+        `INSERT INTO financial_ledger
+           (user_id, entry_type, amount, hot_wallet_address, gas_fee_paid, tx_hash, status, metadata)
+         VALUES ($1, 'WIN_SETTLEMENT', $2, $3, 0, $4, 'CONFIRMED', $5::jsonb)`,
+        [
+          userId,
+          payoutNum.toFixed(4),
+          settlementWallet,
+          txRef,
+          JSON.stringify({
+            sessionId,
+            wagerAmount: numWager,
+            multiplier: numMultiplier,
+            rail,
+            settlementWallet,
+          }),
+        ]
+      );
+
+      await client.query('COMMIT');
 
       return {
         statusCode: 200,
         headers: corsHeaders,
         body: JSON.stringify({
-          success: true,
-          settlementId: fallbackRecord.id,
-          payoutAmount: calculatedPayout,
-          timestamp: fallbackRecord.created_at,
-          ledger: 'EDGE_BUFFER_FALLBACK',
-          warning: dbError.message
-        })
+          ok: true,
+          settlementId: record.id,
+          payoutAmount: payoutNum.toFixed(2),
+          settlementWallet,
+          timestamp: record.created_at,
+          ledger: 'POSTGRES_LEDGER',
+        }),
       };
+    } catch (dbErr) {
+      await client.query('ROLLBACK');
+      throw dbErr;
+    } finally {
+      client.release();
     }
   } catch (error) {
     return {
       statusCode: 500,
       headers: corsHeaders,
-      body: JSON.stringify({ error: error.message })
+      body: JSON.stringify({
+        ok: false,
+        error: 'SETTLEMENT_FAILED',
+        detail: error instanceof Error ? error.message : 'UNKNOWN_ERROR',
+      }),
     };
   }
 }
