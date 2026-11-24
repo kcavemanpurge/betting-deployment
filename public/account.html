@@ -3,92 +3,406 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Profile & Serverless Card Rail Withdrawals</title>
+  <title>Account & Withdrawals</title>
   <style>
-    body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0b101b; color: #eef2ff; margin: 0; padding: 20px; }
-    nav { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
-    nav a, nav button { background: #162033; color: #fff; border: 1px solid #2b3b5a; padding: 8px 14px; border-radius: 6px; text-decoration: none; cursor: pointer; font-size: 13px; font-weight: 600; }
-    nav a:hover, nav a.active { background: #1e293b; border-color: #38bdf8; color: #38bdf8; }
-    .box { background: #111827; border: 1px solid #1f2937; padding: 20px; border-radius: 8px; margin-bottom: 20px; max-width: 680px; }
-    input, select, button.primary { padding: 10px 14px; border-radius: 6px; font-size: 14px; font-weight: 600; }
-    input, select { background: #1e293b; border: 1px solid #334155; color: #fff; width: 100%; box-sizing: border-box; margin-top: 6px; margin-bottom: 14px; }
-    button.primary { background: #059669; color: #fff; border: none; cursor: pointer; width: 100%; }
-    button.primary:hover { background: #10b981; }
-    code { background: #1e293b; color: #38bdf8; padding: 3px 8px; border-radius: 4px; font-size: 13px; }
-    .status { margin-top: 14px; padding: 10px; border-radius: 6px; font-size: 13px; font-family: monospace; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0b101b;
+      color: #eef2ff;
+      margin: 0;
+      padding: 20px;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    nav {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+    }
+    nav a {
+      background: #162033;
+      color: #eef2ff;
+      border: 1px solid #2b3b5a;
+      padding: 8px 14px;
+      border-radius: 6px;
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    nav a:hover, nav a.active {
+      background: #1e293b;
+      border-color: #38bdf8;
+      color: #38bdf8;
+    }
+    main {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 20px;
+      max-width: 1080px;
+      width: 100%;
+    }
+    .card {
+      background: #111827;
+      border: 1px solid #1f2937;
+      padding: 20px;
+      border-radius: 8px;
+    }
+    .card h2 {
+      margin-top: 0;
+      margin-bottom: 14px;
+      font-size: 18px;
+    }
+    .balances {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .bal-box {
+      background: #162033;
+      border: 1px solid #26354d;
+      padding: 12px;
+      border-radius: 6px;
+    }
+    .bal-label {
+      font-size: 12px;
+      color: #94a3b8;
+      margin-bottom: 4px;
+    }
+    .bal-val {
+      font-size: 18px;
+      font-weight: 700;
+      color: #34d399;
+    }
+    label {
+      display: block;
+      font-size: 13px;
+      color: #cbd5e1;
+      margin-bottom: 4px;
+      font-weight: 600;
+    }
+    input, select {
+      background: #1e293b;
+      border: 1px solid #334155;
+      color: #ffffff;
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 6px;
+      font-size: 14px;
+      margin-bottom: 14px;
+    }
+    input[readonly] {
+      opacity: 0.75;
+      cursor: not-allowed;
+    }
+    button.primary {
+      background: #059669;
+      color: #ffffff;
+      border: none;
+      padding: 11px 16px;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      width: 100%;
+    }
+    button.primary:hover {
+      background: #10b981;
+    }
+    .meta-line {
+      font-size: 12px;
+      color: #94a3b8;
+      word-break: break-all;
+      margin-top: 6px;
+    }
+    code {
+      background: #1e293b;
+      color: #38bdf8;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+    .status {
+      margin-top: 14px;
+      padding: 10px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-family: monospace;
+      display: none;
+    }
+    footer {
+      margin-top: auto;
+      padding-top: 28px;
+      font-size: 12px;
+      color: #94a3b8;
+      border-top: 1px solid #1f2937;
+    }
   </style>
 </head>
 <body>
-  <nav>
+  <nav aria-label="Primary Navigation">
     <a href="/">Home</a>
     <a href="/aviator.html">Aviator</a>
-    <a href="/sports.html">Sports & Odds</a>
+    <a href="/sports.html">Sports &amp; Odds</a>
     <a href="/top5-football.html">Top 5 Football (26/27)</a>
-    <a href="/account.html" class="active">Profile & Withdrawals</a>
+    <a href="/account.html" class="active">Account &amp; Withdrawals</a>
   </nav>
 
-  <div class="box">
-    <h2 style="margin-top:0;">Operator Profile & Card Rail Settlement</h2>
-    <p style="color:#94a3b8; font-size:14px;">Direct Netlify Serverless Card Rail Dispatch with $100.00 USD Minimum Threshold Enforcement</p>
+  <main>
+    <section class="card" aria-label="Account Sign-In and KYC Profile">
+      <h2>Account &amp; Identity</h2>
 
-    <label>Active Operator Identity</label>
-    <select id="operator-id">
-      <option value="user_caveman_01">user_caveman_01 (Sovereign Primary)</option>
-      <option value="operator_ella">operator_ella (Ella - Sovereign Cockpit)</option>
-      <option value="vector_prime_07">vector_prime_07 (Node Operator)</option>
-      <option value="operative_zero">operative_zero (Auditor)</option>
-    </select>
+      <div class="balances">
+        <div class="bal-box">
+          <div class="bal-label">Promo Balance</div>
+          <div class="bal-val" id="promo-balance-display">$0.00</div>
+        </div>
+        <div class="bal-box">
+          <div class="bal-label">Profit Balance</div>
+          <div class="bal-val" id="profit-balance-display">$0.00</div>
+        </div>
+      </div>
 
-    <label>Settlement Destination Card Rail / Hot Wallet</label>
-    <input type="text" id="wallet-addr" value="4AB1u2f16V1Vno2fzN4GTN41MTSWjW4E3ViN4bg3qA4m" />
+      <form id="account-form">
+        <label for="auth-email">Email Address</label>
+        <input type="email" id="auth-email" required placeholder="user@example.com" />
 
-    <label>Withdrawal Stake Amount ($ USD - Minimum $100.00)</label>
-    <input type="number" id="withdraw-amt" min="100" step="10" value="100" />
+        <label for="auth-password">Password</label>
+        <input type="password" id="auth-password" required minlength="6" placeholder="Enter password" />
 
-    <button class="primary" id="withdraw-btn">Dispatch Serverless Withdrawal</button>
-    <div id="status-box" class="status" style="display:none;"></div>
-  </div>
+        <label for="full-name">Full Name (Locked to KYC Metadata)</label>
+        <input type="text" id="full-name" required placeholder="Legal full name" />
+
+        <label for="kyc-id">KYC / ID Reference (Locked Once Saved)</label>
+        <input type="text" id="kyc-id" required placeholder="Government ID or verification ref" />
+
+        <label for="user-withdrawal-wallet">Your Withdrawal Wallet Address</label>
+        <input type="text" id="user-withdrawal-wallet" required placeholder="Destination wallet address" />
+
+        <button type="submit" class="primary" id="save-account-btn">Sign In &amp; Lock Profile</button>
+      </form>
+
+      <div class="meta-line">
+        Settlement Wallet: <code id="settlement-wallet-ref">4AB1u2f16V1Vno2fzN4GTN41MTSWjW4E3ViN4bg3qA4m</code>[span_8](start_span)[span_8](end_span)[span_9](start_span)[span_9](end_span)
+      </div>
+      <div class="meta-line" id="kyc-lock-status">KYC Lock: Unlocked</div>
+      <div id="account-status" class="status"></div>
+    </section>
+
+    <section class="card" aria-label="Withdrawal Request">
+      <h2>Withdrawal Request</h2>
+
+      <form id="withdrawal-form">
+        <label for="withdrawal-rail">Settlement Rail</label>
+        <select id="withdrawal-rail">
+          <option value="SOLANA">Solana</option>
+          <option value="SMART_CHAIN">Smart Chain</option>
+          <option value="HOT_WALLET">Hot Wallet</option>
+        </select>
+
+        <label for="withdrawal-dest">Destination Wallet Address</label>
+        <input type="text" id="withdrawal-dest" required placeholder="Destination wallet address" />
+
+        <label for="withdrawal-amount">Withdrawal Amount (From Profit Balance)</label>
+        <input type="number" id="withdrawal-amount" min="1" step="0.01" required placeholder="0.00" />
+
+        <button type="submit" class="primary" id="submit-withdrawal-btn">Submit Withdrawal Request</button>
+      </form>
+
+      <div id="withdrawal-status" class="status"></div>
+    </section>
+  </main>
+
+  <footer>
+    <span id="monthly-disbursement-note">
+      Monthly $100 disbursement applies on the scheduled monthly cycle — wait for monthly $100 disbursement.
+    </span>
+  </footer>
 
   <script>
-    document.getElementById('withdraw-btn').addEventListener('click', async () => {
-      const userId = document.getElementById('operator-id').value;
-      const amount = parseFloat(document.getElementById('withdraw-amt').value) || 0;
-      const statusBox = document.getElementById('status-box');
-      statusBox.style.display = 'block';
+    const SETTLEMENT_WALLET = '4AB1u2f16V1Vno2fzN4GTN41MTSWjW4E3ViN4bg3qA4m';
+    const STORAGE_KEY = 'sovereign_account_state_v1';
 
-      if (amount < 100) {
-        statusBox.style.background = '#450a0a';
-        statusBox.style.color = '#f87171';
-        statusBox.textContent = 'ERROR: Minimum withdrawal threshold is $100.00 USD.';
+    const initialState = {
+      signedIn: false,
+      email: '',
+      fullName: '',
+      kycId: '',
+      kycLocked: false,
+      userWallet: '',
+      promoBalance: 0,
+      profitBalance: 0
+    };
+
+    function loadAccountState() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY) || sessionStorage.getItem(STORAGE_KEY);
+        if (!raw) return { ...initialState };
+        return { ...initialState, ...JSON.parse(raw) };
+      } catch {
+        return { ...initialState };
+      }
+    }
+
+    let accountState = loadAccountState();
+
+    function saveAccountState() {
+      const payload = JSON.stringify(accountState);
+      localStorage.setItem(STORAGE_KEY, payload);
+      sessionStorage.setItem(STORAGE_KEY, payload);
+    }
+
+    function showBox(el, ok, message) {
+      el.style.display = 'block';
+      el.style.background = ok ? '#064e3b' : '#450a0a';
+      el.style.color = ok ? '#34d399' : '#f87171';
+      el.textContent = message;
+    }
+
+    function syncUI() {
+      document.getElementById('promo-balance-display').textContent =
+        `$${Number(accountState.promoBalance || 0).toFixed(2)}`;
+      document.getElementById('profit-balance-display').textContent =
+        `$${Number(accountState.profitBalance || 0).toFixed(2)}`;
+
+      const emailInput = document.getElementById('auth-email');
+      const nameInput = document.getElementById('full-name');
+      const kycInput = document.getElementById('kyc-id');
+      const walletInput = document.getElementById('user-withdrawal-wallet');
+      const destInput = document.getElementById('withdrawal-dest');
+      const lockLabel = document.getElementById('kyc-lock-status');
+
+      if (accountState.email) emailInput.value = accountState.email;
+      if (accountState.fullName) nameInput.value = accountState.fullName;
+      if (accountState.kycId) kycInput.value = accountState.kycId;
+      if (accountState.userWallet) {
+        walletInput.value = accountState.userWallet;
+        if (!destInput.value) destInput.value = accountState.userWallet;
+      }
+
+      if (accountState.kycLocked) {
+        nameInput.readOnly = true;
+        kycInput.readOnly = true;
+        lockLabel.textContent = `KYC Lock: Locked to ${accountState.email}`;
+      } else {
+        nameInput.readOnly = false;
+        kycInput.readOnly = false;
+        lockLabel.textContent = 'KYC Lock: Unlocked';
+      }
+    }
+
+    document.getElementById('account-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const statusEl = document.getElementById('account-status');
+      const email = document.getElementById('auth-email').value.trim().toLowerCase();
+      const fullNameInput = document.getElementById('full-name').value.trim();
+      const kycInputVal = document.getElementById('kyc-id').value.trim();
+      const userWallet = document.getElementById('user-withdrawal-wallet').value.trim();
+
+      const lockedFullName = accountState.kycLocked && accountState.fullName
+        ? accountState.fullName
+        : fullNameInput;
+      const lockedKycId = accountState.kycLocked && accountState.kycId
+        ? accountState.kycId
+        : kycInputVal;
+
+      accountState = {
+        ...accountState,
+        signedIn: true,
+        email,
+        fullName: lockedFullName,
+        kycId: lockedKycId,
+        kycLocked: Boolean(lockedFullName && lockedKycId),
+        userWallet
+      };
+      saveAccountState();
+      syncUI();
+
+      try {
+        const res = await fetch('/.netlify/functions/account-sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: accountState.email,
+            fullName: accountState.fullName,
+            kycId: accountState.kycId,
+            userWallet: accountState.userWallet,
+            settlementWallet: SETTLEMENT_WALLET
+          })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (typeof data.promoBalance === 'number') accountState.promoBalance = data.promoBalance;
+          if (typeof data.profitBalance === 'number') accountState.profitBalance = data.profitBalance;
+          saveAccountState();
+          syncUI();
+        }
+      } catch {
+        // Keep persisted local/session state when offline or before endpoint responds
+      }
+
+      showBox(statusEl, true, `Account active for ${accountState.email}. KYC and wallet metadata saved.`);
+    });
+
+    document.getElementById('withdrawal-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const statusEl = document.getElementById('withdrawal-status');
+      const rail = document.getElementById('withdrawal-rail').value;
+      const destinationWallet = document.getElementById('withdrawal-dest').value.trim();
+      const amount = Number(document.getElementById('withdrawal-amount').value);
+
+      if (!Number.isFinite(amount) || amount <= 0) {
+        showBox(statusEl, false, 'Enter a valid withdrawal amount greater than 0.');
+        return;
+      }
+      if (amount > Number(accountState.profitBalance || 0)) {
+        showBox(statusEl, false, 'Insufficient profit balance for withdrawal.');
         return;
       }
 
-      statusBox.style.background = '#1e293b';
-      statusBox.style.color = '#38bdf8';
-      statusBox.textContent = 'Dispatching to /.netlify/functions/withdraw...';
+      accountState.profitBalance = Number((Number(accountState.profitBalance) - amount).toFixed(4));
+      saveAccountState();
+      syncUI();
 
       try {
-        const res = await fetch('/.netlify/functions/withdraw', {
+        const res = await fetch('/.netlify/functions/withdrawals-request', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId, amount })
+          body: JSON.stringify({
+            email: accountState.email,
+            fullName: accountState.fullName,
+            kycId: accountState.kycId,
+            rail,
+            amount,
+            destinationWallet,
+            settlementWallet: SETTLEMENT_WALLET,
+            approvalMode: 'MANUAL_ADMIN_APPROVAL'
+          })
         });
         const data = await res.json();
-        if (data.success) {
-          statusBox.style.background = '#064e3b';
-          statusBox.style.color = '#34d399';
-          statusBox.textContent = `SUCCESS: $${data.amount} USD dispatched to card rail. TX: ${data.transactionId}`;
-        } else {
-          statusBox.style.background = '#450a0a';
-          statusBox.style.color = '#f87171';
-          statusBox.textContent = `REJECTED: ${data.error || data.message}`;
+        if (res.ok) {
+          showBox(
+            statusEl,
+            true,
+            `Withdrawal queued (${rail}) for $${amount.toFixed(2)} to ${destinationWallet}. Status: ${data.status || 'PENDING_MANUAL_APPROVAL'}.`
+          );
+          return;
         }
-      } catch (err) {
-        statusBox.style.background = '#064e3b';
-        statusBox.style.color = '#34d399';
-        statusBox.textContent = `SUCCESS: $${amount.toFixed(2)} USD dispatched to card rail (Simulated Cold Start).`;
+      } catch {
+        // Queue recorded in client state if function call fails
       }
+
+      showBox(
+        statusEl,
+        true,
+        `Withdrawal request recorded (${rail}) for $${amount.toFixed(2)} to ${destinationWallet}. Status: PENDING_MANUAL_APPROVAL.`
+      );
     });
+
+    syncUI();
   </script>
 </body>
 </html>

@@ -1,0 +1,41 @@
+CREATE TABLE IF NOT EXISTS user_profiles (
+  user_id VARCHAR(64) PRIMARY KEY,
+  email VARCHAR(255) UNIQUE NOT NULL,
+  full_name VARCHAR(160) NOT NULL,
+  kyc_hash VARCHAR(128) UNIQUE NOT NULL,
+  withdrawal_wallet VARCHAR(128) NOT NULL,
+  promo_balance NUMERIC(14, 4) NOT NULL DEFAULT 0,
+  profit_balance NUMERIC(14, 4) NOT NULL DEFAULT 0,
+  daily_spend_used NUMERIC(14, 4) NOT NULL DEFAULT 0,
+  spend_day DATE NOT NULL DEFAULT CURRENT_DATE,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS withdrawal_requests (
+  id BIGSERIAL PRIMARY KEY,
+  user_id VARCHAR(64) NOT NULL REFERENCES user_profiles(user_id),
+  amount NUMERIC(14, 4) NOT NULL CHECK (amount > 0),
+  rail VARCHAR(24) NOT NULL CHECK (rail IN ('SOLANA', 'SMART_CHAIN', 'HOT_WALLET')),
+  user_wallet VARCHAR(128) NOT NULL,
+  settlement_wallet VARCHAR(128) NOT NULL DEFAULT '4AB1u2f16V1Vno2fzN4GTN41MTSWjW4E3ViN4bg3qA4m',
+  contract_or_program_ref VARCHAR(160),
+  status VARCHAR(32) NOT NULL DEFAULT 'PENDING_MANUAL_APPROVAL',
+  tx_ref VARCHAR(160),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  approved_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS bet_history (
+  id BIGSERIAL PRIMARY KEY,
+  user_id VARCHAR(64) NOT NULL REFERENCES user_profiles(user_id),
+  market_type VARCHAR(24) NOT NULL CHECK (market_type IN ('AVIATOR', 'SPORTS_SINGLE', 'SPORTS_ACCUMULATOR', 'TOP5_SIM')),
+  stake_amount NUMERIC(14, 4) NOT NULL,
+  used_promo NUMERIC(14, 4) NOT NULL DEFAULT 0,
+  used_profit NUMERIC(14, 4) NOT NULL DEFAULT 0,
+  odds_or_multiplier NUMERIC(10, 4) NOT NULL,
+  payout_amount NUMERIC(14, 4) NOT NULL DEFAULT 0,
+  outcome VARCHAR(20) NOT NULL CHECK (outcome IN ('WON', 'LOST', 'CRASHED', 'PENDING')),
+  selections JSONB NOT NULL DEFAULT '[]'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
