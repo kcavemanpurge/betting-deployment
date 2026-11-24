@@ -15,7 +15,9 @@ import {
   Unlock, 
   Lock, 
   Timer,
-  UserCheck
+  UserCheck,
+  User,
+  Sparkles
 } from 'lucide-react';
 
 export function AviatorEngine({ 
@@ -23,18 +25,18 @@ export function AviatorEngine({
   initialBalance = 1000.00,
   externalBalance,
   onBalanceChange,
-  onSettlementComplete
+  onSettlementComplete,
+  onOpenProfile,
+  boostMultiplier = null
 }) {
   // Balance & Ledger State
   const [balance, setBalance] = useState(externalBalance ?? initialBalance);
-  const [withdrawAmount, setWithdrawAmount] = useState(100.00);
-  const [withdrawStatus, setWithdrawStatus] = useState('');
-  const [isWithdrawing, setIsWithdrawing] = useState(false);
 
   // Staking Parameters
   const [wagerStake, setWagerStake] = useState(50.00);
   const [targetOdds, setTargetOdds] = useState(2.00);
   const [autoLoop, setAutoLoop] = useState(false); // Automated continuous hands-free flight loop
+  const [accaBoostActive, setAccaBoostActive] = useState(false);
 
   // Countdown & Calm-Down Engine ("Calm down before flight / unlock betting for Ella")
   const [countdownDuration, setCountdownDuration] = useState(5); // 5s or 3s selector
@@ -56,6 +58,14 @@ export function AviatorEngine({
       setBalance(externalBalance);
     }
   }, [externalBalance]);
+
+  // Sync external boost multiplier from football accumulator
+  useEffect(() => {
+    if (boostMultiplier && boostMultiplier > 1.0) {
+      setTargetOdds(parseFloat(boostMultiplier.toFixed(2)));
+      setAccaBoostActive(true);
+    }
+  }, [boostMultiplier]);
 
   const updateBalance = useCallback((newBal) => {
     setBalance(newBal);
@@ -351,47 +361,6 @@ export function AviatorEngine({
     }
   };
 
-  // Serverless Withdrawal Handler ($100 Minimum Enforcement via Netlify Function)
-  const handleWithdrawal = async () => {
-    if (isNaN(withdrawAmount) || withdrawAmount < 100.00) {
-      setWithdrawStatus('ERROR: Minimum withdrawal threshold is $100.00 USD');
-      return;
-    }
-    if (withdrawAmount > balance) {
-      setWithdrawStatus('ERROR: Insufficient ledger balance');
-      return;
-    }
-
-    setIsWithdrawing(true);
-    setWithdrawStatus('DISPATCHING TO SERVERLESS CARD RAIL...');
-
-    try {
-      const res = await fetch('/.netlify/functions/withdraw', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId,
-          amount: withdrawAmount
-        })
-      });
-
-      const data = await res.json();
-      if (data.success) {
-        const nextBal = parseFloat((balance - withdrawAmount).toFixed(2));
-        updateBalance(nextBal);
-        setWithdrawStatus(`SUCCESS: $${data.amount} USD dispatched to settlement card rail (TX: ${data.transactionId}).`);
-      } else {
-        setWithdrawStatus(`ERROR: ${data.error || data.message || 'Withdrawal rejected'}`);
-      }
-    } catch (e) {
-      const nextBal = parseFloat((balance - withdrawAmount).toFixed(2));
-      updateBalance(nextBal);
-      setWithdrawStatus(`SUCCESS: $${withdrawAmount.toFixed(2)} USD dispatched to card rail.`);
-    } finally {
-      setIsWithdrawing(false);
-    }
-  };
-
   return (
     <div className="w-full max-w-2xl bg-slate-950 text-cyan-400 font-mono p-6 border border-cyan-500/30 rounded-lg shadow-2xl">
       {/* Header & Ledger Balance Display */}
@@ -410,6 +379,38 @@ export function AviatorEngine({
           <div className="text-2xl font-bold text-emerald-400">${balance.toFixed(2)}</div>
         </div>
       </div>
+
+      {/* Low Balance Alert / Reload Prompt */}
+      {balance <= 0 && (
+        <div className="mb-4 p-3 rounded-lg bg-amber-950/60 border border-amber-500/40 text-amber-300 text-xs flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>LEDGER EXHAUSTED: $1,000 credit finished. Click to reload deposit.</span>
+          </div>
+          <button
+            onClick={() => onOpenProfile ? onOpenProfile() : updateBalance(100.00)}
+            className="px-3 py-1 rounded bg-amber-500 hover:bg-amber-400 text-black font-extrabold text-[11px] uppercase transition cursor-pointer whitespace-nowrap"
+          >
+            +$100 RENEWAL
+          </button>
+        </div>
+      )}
+
+      {/* Accumulator Multiplier Boost Banner */}
+      {accaBoostActive && (
+        <div className="mb-3 p-2 rounded bg-cyan-950/70 border border-cyan-500/40 text-cyan-300 text-xs flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-cyan-400" />
+            <span>ACCUMULATOR BOOST SYNCED: Target flight multiplier set to <strong className="text-white">{targetOdds.toFixed(2)}x</strong></span>
+          </div>
+          <button
+            onClick={() => setAccaBoostActive(false)}
+            className="text-[10px] text-slate-400 hover:text-white underline cursor-pointer"
+          >
+            Reset
+          </button>
+        </div>
+      )}
 
       {/* Ella / Operator Betting Status Banner */}
       <div className="mb-4 p-2.5 rounded border flex flex-wrap items-center justify-between gap-2 text-xs bg-slate-900/90 border-slate-800">
@@ -595,7 +596,7 @@ export function AviatorEngine({
       </div>
 
       {/* Action Trigger Buttons: Calm-Down Countdown / Settle Now / Bypass */}
-      <div className="mb-6 space-y-2">
+      <div className="mb-4 space-y-2">
         {flightPhase === 'FLYING' ? (
           <button 
             onClick={handleInstantAutoSettle}
@@ -641,48 +642,27 @@ export function AviatorEngine({
       </div>
 
       {settlementLog && (
-        <div className="mb-6 p-2.5 bg-slate-900 border border-emerald-500/40 text-emerald-400 text-xs rounded flex items-center justify-between">
+        <div className="mb-4 p-2.5 bg-slate-900 border border-emerald-500/40 text-emerald-400 text-xs rounded flex items-center justify-between">
           <span>// {settlementLog}</span>
           <span className="text-[10px] text-slate-500 font-mono">WORM IMMUTABLE</span>
         </div>
       )}
 
-      {/* SERVERLESS CARD RAIL WITHDRAWAL SECTION */}
-      <div className="pt-6 border-t border-slate-800">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-bold text-white tracking-wider flex items-center gap-1.5">
-            <ShieldCheck className="w-4 h-4 text-emerald-400" /> // SERVERLESS WITHDRAWAL RAIL
-          </h3>
-          <span className="text-[10px] text-emerald-400 font-mono px-1.5 py-0.5 rounded bg-emerald-950/60 border border-emerald-500/30">
-            NETLIFY FUNCTION (/.netlify/functions/withdraw)
+      {/* PROPERLY STRUCTURED USER PROFILE & WITHDRAWAL GATEWAY (Cleaned up from Aviator screen) */}
+      <div className="pt-4 border-t border-slate-800/80 flex items-center justify-between text-xs">
+        <div className="flex items-center gap-2">
+          <ShieldCheck className="w-4 h-4 text-emerald-400" />
+          <span className="text-slate-400 text-[11px]">
+            CARD RAIL WITHDRAWALS & DEPOSITS:
           </span>
         </div>
-        
-        <div className="flex gap-3 mb-2">
-          <input 
-            type="number" 
-            min="100"
-            value={withdrawAmount}
-            onChange={(e) => setWithdrawAmount(parseFloat(e.target.value) || 0)}
-            className="flex-1 bg-slate-900 border border-slate-800 p-2 text-white font-bold rounded text-sm focus:border-emerald-400 outline-none"
-            placeholder="Min $100.00"
-          />
-          <button 
-            onClick={handleWithdrawal}
-            disabled={isWithdrawing}
-            className="px-6 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 text-black font-bold text-xs uppercase rounded transition cursor-pointer active:scale-95 flex items-center gap-1.5"
-          >
-            {isWithdrawing && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-            EXECUTE WITHDRAWAL
-          </button>
-        </div>
-        <p className="text-[10px] text-slate-500 mb-2">* Minimum withdrawal threshold: $100.00 USD | Direct Netlify Serverless Card Rail</p>
-        
-        {withdrawStatus && (
-          <div className={`text-xs font-semibold p-2 rounded bg-slate-900/80 border ${withdrawStatus.startsWith('ERROR') ? 'text-rose-400 border-rose-500/30' : 'text-emerald-400 border-emerald-500/30'}`}>
-            // {withdrawStatus}
-          </div>
-        )}
+        <button
+          onClick={onOpenProfile}
+          className="px-3 py-1.5 rounded bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-slate-700 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+        >
+          <User className="w-3.5 h-3.5" />
+          MANAGE PROFILE & WITHDRAWALS
+        </button>
       </div>
     </div>
   );

@@ -4,6 +4,8 @@ import { AviatorEngine } from './components/AviatorEngine.jsx';
 import { ServerlessTerminal } from './components/ServerlessTerminal.jsx';
 import { Top5FootballSim } from './components/Top5FootballSim.jsx';
 import { LiveOddsPortal } from './components/LiveOddsPortal.jsx';
+import { BetSlip } from './components/BetSlip.jsx';
+import { UserProfileModal } from './components/UserProfileModal.jsx';
 import { sound } from './utils/audio.js';
 import { 
   Zap, 
@@ -21,7 +23,11 @@ import {
   Server,
   Trophy,
   ExternalLink,
-  Flame
+  Flame,
+  User,
+  PlusCircle,
+  Receipt,
+  Sparkles
 } from 'lucide-react';
 
 export default function App() {
@@ -36,6 +42,13 @@ export default function App() {
   const [isLoadingLedger, setIsLoadingLedger] = useState(false);
   const [ledgerSource, setLedgerSource] = useState('CONNECTING...');
   const [activeTab, setActiveTab] = useState('cockpit'); // 'cockpit' | 'football' | 'odds' | 'terminal' | 'architecture' | 'schema'
+
+  // User Profile & Provider Auth Modal
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+
+  // Football Acca Bet Slip State
+  const [betPicks, setBetPicks] = useState([]);
+  const [boostMultiplier, setBoostMultiplier] = useState(null);
 
   // Read URL query params on load (e.g. ?mode=aviator)
   useEffect(() => {
@@ -90,6 +103,41 @@ export default function App() {
     setSettlements((prev) => [newSettlement, ...prev.slice(0, 19)]);
   };
 
+  // Toggle or add pick to Bet Slip
+  const handleTogglePick = (pick) => {
+    setBetPicks((prev) => {
+      const exists = prev.some(
+        (p) => p.id === pick.id || (p.matchId === pick.matchId && p.selection === pick.selection)
+      );
+      if (exists) {
+        return prev.filter(
+          (p) => p.id !== pick.id && !(p.matchId === pick.matchId && p.selection === pick.selection)
+        );
+      }
+      // Replace same match if different outcome picked
+      const withoutSameMatch = prev.filter((p) => p.matchId !== pick.matchId);
+      return [...withoutSameMatch, pick];
+    });
+  };
+
+  const handleRemovePick = (pickId) => {
+    setBetPicks((prev) => prev.filter((p) => p.id !== pickId));
+  };
+
+  const handleClearPicks = () => {
+    setBetPicks([]);
+  };
+
+  const handleDeductStake = (amount) => {
+    setBalance((prev) => Math.max(0, parseFloat((prev - amount).toFixed(2))));
+  };
+
+  const handleApplyAccaToFlight = (odds) => {
+    setBoostMultiplier(odds);
+    setActiveTab('cockpit');
+    setEngineMode('aviator');
+  };
+
   // Stats calculation
   const totalSettledCount = settlements.length;
   const highestMultiplier = settlements.reduce((max, curr) => Math.max(max, parseFloat(curr.multiplier) || 1), 1.00);
@@ -123,32 +171,7 @@ export default function App() {
           </div>
 
           {/* Quick Telemetry & Controls */}
-          <div className="flex items-center gap-4 text-xs">
-            {/* Direct Portal Links */}
-            <div className="hidden md:flex items-center gap-2">
-              <a
-                href="/top5-football.html"
-                className="px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[11px] text-slate-300 hover:text-cyan-400 transition flex items-center gap-1"
-                title="Open Standalone Top 5 Football Simulator"
-              >
-                <Trophy className="w-3 h-3 text-amber-400" /> Top 5 Sim
-              </a>
-              <a
-                href="/sports.html"
-                className="px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[11px] text-slate-300 hover:text-cyan-400 transition flex items-center gap-1"
-                title="Open Live Sports & Odds Portal"
-              >
-                <Flame className="w-3 h-3 text-cyan-400" /> Sports & Odds
-              </a>
-              <a
-                href="/account.html"
-                className="px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[11px] text-slate-300 hover:text-cyan-400 transition flex items-center gap-1"
-                title="Profile & Serverless Withdrawals"
-              >
-                <ShieldCheck className="w-3 h-3 text-emerald-400" /> Withdraw
-              </a>
-            </div>
-
+          <div className="flex items-center gap-3 text-xs">
             {/* Audio Mute */}
             <button
               onClick={toggleMute}
@@ -158,8 +181,8 @@ export default function App() {
               {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4 text-cyan-400" />}
             </button>
 
-            {/* Operator Balance */}
-            <div className="px-3.5 py-1.5 rounded bg-slate-900 border border-slate-800 flex items-center gap-2">
+            {/* Operator Balance & Deposit Reload */}
+            <div className="px-3.5 py-1.5 rounded bg-slate-900 border border-slate-800 flex items-center gap-2.5">
               <DollarSign className="w-4 h-4 text-emerald-400" />
               <div>
                 <span className="text-[10px] text-slate-400 block leading-tight">LEDGER BALANCE</span>
@@ -167,21 +190,24 @@ export default function App() {
                   ${balance.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                 </span>
               </div>
+              <button
+                onClick={() => setIsProfileOpen(true)}
+                className="px-2 py-0.5 rounded bg-emerald-950 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-900 text-[10px] font-bold transition cursor-pointer flex items-center gap-1"
+                title="Deposit or Renew $100"
+              >
+                <PlusCircle className="w-3 h-3 text-emerald-400" /> +$100 RENEW
+              </button>
             </div>
 
-            {/* Operator Identifier */}
-            <div className="flex items-center gap-2">
-              <select
-                value={userId}
-                onChange={(e) => setUserId(e.target.value)}
-                className="bg-slate-900 border border-cyan-500/30 text-cyan-300 text-xs rounded px-2.5 py-1.5 outline-hidden focus:border-cyan-400 cursor-pointer"
-              >
-                <option value="user_caveman_01">user_caveman_01 (Sovereign)</option>
-                <option value="operator_ella">operator_ella (Ella)</option>
-                <option value="vector_prime_07">vector_prime_07 (Node Op)</option>
-                <option value="operative_zero">operative_zero (Auditor)</option>
-              </select>
-            </div>
+            {/* User Provider Sign In & Profile Button */}
+            <button
+              onClick={() => setIsProfileOpen(true)}
+              className="px-3 py-1.5 rounded bg-cyan-950 border border-cyan-500/40 text-cyan-300 hover:bg-cyan-900 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-md shadow-cyan-500/10"
+              title="Open User Provider Sign In & Account Profile"
+            >
+              <User className="w-3.5 h-3.5" />
+              <span>{userId}</span>
+            </button>
           </div>
         </div>
       </header>
@@ -208,7 +234,7 @@ export default function App() {
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
-            <Trophy className="w-4 h-4 text-amber-400" /> TOP 5 FOOTBALL (26/27)
+            <Trophy className="w-4 h-4 text-amber-400" /> TOP 5 FOOTBALL (26/27) & TEAM BOARDS
           </button>
           <button
             onClick={() => setActiveTab('odds')}
@@ -297,6 +323,8 @@ export default function App() {
                     externalBalance={balance}
                     onBalanceChange={(newBal) => setBalance(newBal)}
                     onSettlementComplete={handleSettlementComplete}
+                    onOpenProfile={() => setIsProfileOpen(true)}
+                    boostMultiplier={boostMultiplier}
                   />
                 </div>
               ) : (
@@ -410,8 +438,18 @@ export default function App() {
               )}
             </div>
 
-            {/* Right Column: Immutable Ledger & Real-Time Settlements */}
+            {/* Right Column: Bet Slip & Immutable Ledger */}
             <div className="lg:col-span-4 space-y-6">
+              {/* Football Acca Bet Slip Component */}
+              <BetSlip
+                picks={betPicks}
+                onRemovePick={handleRemovePick}
+                onClearPicks={handleClearPicks}
+                balance={balance}
+                onDeductStake={handleDeductStake}
+                onApplyAccaToFlight={handleApplyAccaToFlight}
+              />
+
               {/* Telemetry Snapshot Cards */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="bg-gray-950 p-3.5 rounded-lg border border-slate-800">
@@ -451,7 +489,7 @@ export default function App() {
                 </div>
 
                 {/* Ledger Items List */}
-                <div className="divide-y divide-slate-800/60 max-h-[460px] overflow-y-auto">
+                <div className="divide-y divide-slate-800/60 max-h-[380px] overflow-y-auto">
                   {settlements.length === 0 ? (
                     <div className="p-8 text-center text-xs text-slate-500">
                       No settled blocks yet in ledger. Execute vector to register atomic settlement.
@@ -491,14 +529,45 @@ export default function App() {
           </div>
         )}
 
-        {/* Tab 2: Top 5 Football Leagues (2026/2027) */}
+        {/* Tab 2: Top 5 Football Leagues (2026/2027) with Bet Slip */}
         {activeTab === 'football' && (
-          <Top5FootballSim />
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <div className="lg:col-span-8">
+              <Top5FootballSim
+                picks={betPicks}
+                onTogglePick={handleTogglePick}
+              />
+            </div>
+            <div className="lg:col-span-4 space-y-6">
+              <BetSlip
+                picks={betPicks}
+                onRemovePick={handleRemovePick}
+                onClearPicks={handleClearPicks}
+                balance={balance}
+                onDeductStake={handleDeductStake}
+                onApplyAccaToFlight={handleApplyAccaToFlight}
+              />
+            </div>
+          </div>
         )}
 
-        {/* Tab 3: Live Sports & Verified Odds */}
+        {/* Tab 3: Live Sports & Verified Odds with Bet Slip */}
         {activeTab === 'odds' && (
-          <LiveOddsPortal />
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <div className="lg:col-span-8">
+              <LiveOddsPortal />
+            </div>
+            <div className="lg:col-span-4 space-y-6">
+              <BetSlip
+                picks={betPicks}
+                onRemovePick={handleRemovePick}
+                onClearPicks={handleClearPicks}
+                balance={balance}
+                onDeductStake={handleDeductStake}
+                onApplyAccaToFlight={handleApplyAccaToFlight}
+              />
+            </div>
+          </div>
         )}
 
         {/* Tab 4: Serverless Deployment Terminal */}
@@ -563,19 +632,27 @@ export default function App() {
                       </td>
                     </tr>
                     <tr className="hover:bg-slate-900/30">
-                      <td className="py-3 px-3 font-bold text-cyan-300">Live Odds Function</td>
-                      <td className="py-3 px-3 text-slate-300">Netlify Function (/.netlify/functions/live-odds)</td>
-                      <td className="py-3 px-3 text-slate-400">The-Odds-API (UK, EU, US Markets)</td>
+                      <td className="py-3 px-3 font-bold text-cyan-300">User Provider & Credit Auth</td>
+                      <td className="py-3 px-3 text-slate-300">In-App Account Provider Portal</td>
+                      <td className="py-3 px-3 text-slate-400">Sovereign Identity + Netlify Database</td>
                       <td className="py-3 px-3 text-emerald-400 flex items-center gap-1.5">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-400" /> VERIFIED 200 OK
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400" /> ACTIVE
                       </td>
                     </tr>
                     <tr className="hover:bg-slate-900/30">
-                      <td className="py-3 px-3 font-bold text-cyan-300">Top 5 Leagues (26/27)</td>
-                      <td className="py-3 px-3 text-slate-300">In-Browser & Standalone (/top5-football.html)</td>
-                      <td className="py-3 px-3 text-slate-400">EPL, La Liga, Serie A, Bundesliga, Ligue 1</td>
+                      <td className="py-3 px-3 font-bold text-cyan-300">Acca Bet Slip Engine</td>
+                      <td className="py-3 px-3 text-slate-300">Multi-Leg Accumulator + Flight Booster</td>
+                      <td className="py-3 px-3 text-slate-400">Real-Time Odds Calculator</td>
                       <td className="py-3 px-3 text-emerald-400 flex items-center gap-1.5">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-400" /> SIMULATED & SEEDED
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400" /> ARMED
+                      </td>
+                    </tr>
+                    <tr className="hover:bg-slate-900/30">
+                      <td className="py-3 px-3 font-bold text-cyan-300">Top 5 European Leagues Board</td>
+                      <td className="py-3 px-3 text-slate-300">EPL, La Liga, Serie A, Bundesliga, Ligue 1</td>
+                      <td className="py-3 px-3 text-slate-400">Visual Team Board + Auto-Simulation Ticker</td>
+                      <td className="py-3 px-3 text-emerald-400 flex items-center gap-1.5">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400" /> LIVE ENGINE
                       </td>
                     </tr>
                     <tr className="hover:bg-slate-900/30">
@@ -594,63 +671,8 @@ export default function App() {
                         <CheckCircle2 className="w-4 h-4 text-emerald-400" /> ACTIVE RAIL
                       </td>
                     </tr>
-                    <tr className="hover:bg-slate-900/30">
-                      <td className="py-3 px-3 font-bold text-cyan-300">Provably Fair Round Engine</td>
-                      <td className="py-3 px-3 text-slate-300">Netlify Function (/.netlify/functions/round)</td>
-                      <td className="py-3 px-3 text-slate-400">HMAC-SHA256 Serverless Generator</td>
-                      <td className="py-3 px-3 text-emerald-400 flex items-center gap-1.5">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-400" /> PROVABLY FAIR
-                      </td>
-                    </tr>
-                    <tr className="hover:bg-slate-900/30">
-                      <td className="py-3 px-3 font-bold text-cyan-300">Unified Settlement Service</td>
-                      <td className="py-3 px-3 text-slate-300">server/services/unifiedSettlementService.ts</td>
-                      <td className="py-3 px-3 text-slate-400">EVM + Solana + Hot Wallet Multi-Rail</td>
-                      <td className="py-3 px-3 text-emerald-400 flex items-center gap-1.5">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-400" /> INTEGRATED
-                      </td>
-                    </tr>
-                    <tr className="hover:bg-slate-900/30">
-                      <td className="py-3 px-3 font-bold text-cyan-300">Immutable Ledger</td>
-                      <td className="py-3 px-3 text-slate-300">PostgreSQL (Netlify Database Managed Instance)</td>
-                      <td className="py-3 px-3 text-slate-400">Drizzle ORM + Connection Pooler</td>
-                      <td className="py-3 px-3 text-emerald-400 flex items-center gap-1.5">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-400" /> CONNECTED
-                      </td>
-                    </tr>
                   </tbody>
                 </table>
-              </div>
-            </div>
-
-            {/* Architecture Details Box */}
-            <div className="bg-gray-950 p-6 rounded-xl border border-slate-800 shadow-xl space-y-3">
-              <div className="flex items-center gap-2">
-                <Server className="w-5 h-5 text-cyan-400" />
-                <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wider">
-                  II. Serverless Automation & Elimination of External Dependencies
-                </h3>
-              </div>
-
-              <p className="text-xs text-slate-400 leading-relaxed">
-                All betting simulation, settlement processing, live odds telemetry, and card rail withdrawals are executed via native Netlify Functions. 
-                External dependencies such as Termux, manual mobile push scripts, and manual cashout calculations have been permanently eliminated. 
-                The system runs autonomously on Netlify Edge CDN with immutable PostgreSQL ledger persistence.
-              </p>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
-                <div className="p-3 bg-slate-900 border border-slate-800 rounded">
-                  <div className="text-[11px] font-bold text-emerald-400 mb-1">CALM-DOWN ENGINE</div>
-                  <div className="text-[10px] text-slate-400">Configurable 5s or 3s calm-down window before takeoff allowing Ella / operator to unlock and arm stakes.</div>
-                </div>
-                <div className="p-3 bg-slate-900 border border-slate-800 rounded">
-                  <div className="text-[11px] font-bold text-emerald-400 mb-1">TOP 5 FOOTBALL (26/27)</div>
-                  <div className="text-[10px] text-slate-400">Full 2026/2027 season simulator covering EPL, La Liga, Serie A, Bundesliga, and Ligue 1 clubs.</div>
-                </div>
-                <div className="p-3 bg-slate-900 border border-slate-800 rounded">
-                  <div className="text-[11px] font-bold text-emerald-400 mb-1">LIVE THE-ODDS-API</div>
-                  <div className="text-[10px] text-slate-400">Real-time head-to-head market data linked to Netlify Odds Wallet 4AB1u2f16V1Vno2fzN4GTN41MTSWjW4E3ViN4bg3qA4m.</div>
-                </div>
               </div>
             </div>
           </div>
@@ -664,17 +686,13 @@ export default function App() {
                 <div className="flex items-center gap-2">
                   <Database className="w-5 h-5 text-cyan-400" />
                   <h2 className="text-base font-bold text-slate-100 uppercase tracking-wider">
-                    Immutable Ledger & Football Database Schema (Drizzle ORM & PostgreSQL)
+                    Immutable Ledger & Football Database Schema
                   </h2>
                 </div>
                 <span className="text-xs text-cyan-400 font-mono">
                   MANAGED MIGRATIONS
                 </span>
               </div>
-
-              <p className="text-xs text-slate-400">
-                PostgreSQL schema definitions for atomic settlements, cross-chain financial ledger, and 2026/2027 European football simulation:
-              </p>
 
               <pre className="p-4 bg-slate-950 border border-slate-800 rounded-lg text-xs text-emerald-400 font-mono overflow-x-auto leading-relaxed">
 {`-- 1. Core bet settlements table
@@ -701,41 +719,22 @@ CREATE TABLE IF NOT EXISTS financial_ledger (
     status VARCHAR(20) NOT NULL DEFAULT 'CONFIRMED',
     metadata JSONB DEFAULT '{}'::jsonb,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- 3. Top 5 Football Leagues (2026/2027) tables
-CREATE TABLE IF NOT EXISTS football_leagues_2627 (
-  league_code TEXT PRIMARY KEY,
-  league_name TEXT NOT NULL,
-  country TEXT NOT NULL,
-  season TEXT NOT NULL DEFAULT '2026/2027'
-);
-
-CREATE TABLE IF NOT EXISTS football_teams_2627 (
-  id SERIAL PRIMARY KEY,
-  league_code TEXT NOT NULL REFERENCES football_leagues_2627(league_code),
-  team_name TEXT NOT NULL,
-  sim_rating INTEGER NOT NULL DEFAULT 75,
-  sim_wins INTEGER NOT NULL DEFAULT 0,
-  sim_draws INTEGER NOT NULL DEFAULT 0,
-  sim_losses INTEGER NOT NULL DEFAULT 0,
-  sim_points INTEGER NOT NULL DEFAULT 0,
-  UNIQUE (league_code, team_name)
 );`}
               </pre>
-
-              <div className="p-4 rounded bg-cyan-950/30 border border-cyan-500/20 text-xs text-slate-300 space-y-2">
-                <div className="font-bold text-cyan-300">WORM Invariant Enforcement:</div>
-                <ul className="list-disc list-inside space-y-1 text-slate-400">
-                  <li><strong className="text-slate-200">session_id</strong> is unique to guarantee strict single-settlement idempotency and prevent duplicate double-spend.</li>
-                  <li><strong className="text-slate-200">payout_amount</strong> is computed as a generated column (<code className="text-cyan-400">wager_amount * multiplier</code>) to prevent mathematical tampering.</li>
-                  <li><strong className="text-slate-200">financial_ledger</strong> records multi-rail hot wallet, Solana, and EVM executions with gas fee audits.</li>
-                </ul>
-              </div>
             </div>
           </div>
         )}
       </main>
+
+      {/* User Provider Sign In & Profile Modal */}
+      <UserProfileModal
+        isOpen={isProfileOpen}
+        onClose={() => setIsProfileOpen(false)}
+        userId={userId}
+        onUserChange={(newId) => setUserId(newId)}
+        balance={balance}
+        onBalanceChange={(newBal) => setBalance(newBal)}
+      />
 
       {/* Footer */}
       <footer className="border-t border-slate-800/80 py-6 mt-12 bg-gray-950/60">
