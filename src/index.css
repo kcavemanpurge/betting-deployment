@@ -1,59 +1,55 @@
-@import "tailwindcss";
+:root {
+  --bg-page: #f8fafc;
+  --bg-surface: #ffffff;
+  --bg-subtle: #f1f5f9;
+  --border-soft: #e2e8f0;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
 
-@layer base {
-  :root {
-    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    --font-display: 'Orbitron', var(--font-mono);
-  }
+  /* Primary & Secondary Betting Palette */
+  --primary: #1d4ed8;
+  --primary-hover: #1e40af;
+  --primary-soft: #eff6ff;
 
-  body {
-    background-color: #030712;
-    color: #e2e8f0;
-    font-family: var(--font-mono);
-    overflow-x: hidden;
-  }
+  --secondary: #059669;
+  --secondary-hover: #047857;
+  --secondary-soft: #ecfdf5;
+
+  --accent-amber: #d97706;
+  --accent-amber-soft: #fffbeb;
+  --danger: #dc2626;
 }
 
-/* Vector Glow & Scanline utilities */
-.glow-cyan {
-  text-shadow: 0 0 12px rgba(6, 182, 212, 0.7), 0 0 24px rgba(6, 182, 212, 0.4);
+body {
+  margin: 0;
+  background-color: var(--bg-page);
+  color: var(--text-primary);
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
-.glow-emerald {
-  text-shadow: 0 0 12px rgba(16, 185, 129, 0.7), 0 0 24px rgba(16, 185, 129, 0.4);
+h1, h2, h3, .font-heading {
+  font-family: "Plus Jakarta Sans", "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  letter-spacing: -0.015em;
 }
 
-.glow-rose {
-  text-shadow: 0 0 12px rgba(244, 63, 94, 0.7), 0 0 24px rgba(244, 63, 94, 0.4);
+.bet-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
 }
 
-.border-glow-cyan {
-  box-shadow: 0 0 15px rgba(6, 182, 212, 0.25), inset 0 0 15px rgba(6, 182, 212, 0.1);
+.odd-pill {
+  background: var(--primary-soft);
+  color: var(--primary);
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  font-weight: 700;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 
-.border-glow-emerald {
-  box-shadow: 0 0 15px rgba(16, 185, 129, 0.25), inset 0 0 15px rgba(16, 185, 129, 0.1);
-}
-
-.scanlines {
-  background: linear-gradient(
-    rgba(18, 16, 16, 0) 50%, 
-    rgba(0, 0, 0, 0.25) 50%
-  ), linear-gradient(
-    90deg,
-    rgba(255, 0, 0, 0.03),
-    rgba(0, 255, 0, 0.01),
-    rgba(0, 0, 255, 0.03)
-  );
-  background-size: 100% 3px, 6px 100%;
-  pointer-events: none;
-}
-
-@keyframes pulseGlow {
-  0%, 100% { opacity: 0.8; }
-  50% { opacity: 1; filter: drop-shadow(0 0 10px rgba(6, 182, 212, 0.8)); }
-}
-
-.animate-pulse-glow {
-  animation: pulseGlow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+.odd-pill:hover:not(:disabled) {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #ffffff;
 }
