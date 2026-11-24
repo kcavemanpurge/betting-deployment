@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sports & Live Odds — Sovereign Betting Deployment</title>
+  <style>
+    body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0b101b; color: #eef2ff; margin: 0; padding: 20px; }
+    nav { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+    nav a, nav button { background: #162033; color: #fff; border: 1px solid #2b3b5a; padding: 8px 14px; border-radius: 6px; text-decoration: none; cursor: pointer; font-size: 13px; font-weight: 600; }
+    nav a:hover, nav a.active { background: #1e293b; border-color: #38bdf8; color: #38bdf8; }
+    .header-box { background: #111827; border: 1px solid #1f2937; padding: 16px; border-radius: 8px; margin-bottom: 20px; }
+    .controls { display: flex; gap: 10px; align-items: center; margin-bottom: 18px; flex-wrap: wrap; }
+    select, button.primary { background: #1d4ed8; color: #fff; border: none; padding: 9px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600; }
+    button { background: #1f2937; color: #e2e8f0; border: 1px solid #374151; padding: 9px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+    button:hover { background: #374151; }
+    .events-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; margin-top: 16px; }
+    .card { background: #111827; border: 1px solid #1f2937; border-radius: 8px; padding: 16px; }
+    .card-header { font-size: 12px; color: #94a3b8; display: flex; justify-content: space-between; margin-bottom: 8px; }
+    .match-teams { font-size: 15px; font-weight: 700; color: #f8fafc; margin-bottom: 12px; }
+    .odds-row { display: flex; gap: 8px; }
+    .odd-btn { flex: 1; background: #1e293b; border: 1px solid #334155; padding: 8px 4px; border-radius: 6px; text-align: center; cursor: pointer; }
+    .odd-btn:hover { border-color: #38bdf8; background: #0f172a; }
+    .odd-label { font-size: 11px; color: #94a3b8; display: block; }
+    .odd-value { font-size: 14px; font-weight: 700; color: #38bdf8; }
+    code { background: #1e293b; color: #38bdf8; padding: 3px 8px; border-radius: 4px; font-size: 13px; }
+    .status-msg { margin-top: 12px; padding: 10px; border-radius: 6px; background: #162033; font-size: 12px; font-family: monospace; }
+  </style>
+</head>
+<body>
+  <nav>
+    <a href="/">Home</a>
+    <a href="/aviator.html">Aviator</a>
+    <a href="/sports.html" class="active">Sports & Odds</a>
+    <a href="/top5-football.html">Top 5 Football (26/27)</a>
+    <a href="/account.html">Profile & Withdrawals</a>
+  </nav>
+
+  <div class="header-box">
+    <h1 style="margin:0 0 8px 0; font-size: 22px;">Live Sports & Verified Market Odds</h1>
+    <p style="margin: 0; color: #94a3b8;">
+      Netlify Odds Settlement Wallet: <code id="wallet-display">4AB1u2f16V1Vno2fzN4GTN41MTSWjW4E3ViN4bg3qA4m</code>
+    </p>
+  </div>
+
+  <div class="controls">
+    <label for="sport-select" style="font-size: 14px; font-weight: 600;">Sport / League:</label>
+    <select id="sport-select">
+      <option value="soccer_epl">Premier League (EPL)</option>
+      <option value="soccer_spain_la_liga">La Liga (Spain)</option>
+      <option value="soccer_italy_serie_a">Serie A (Italy)</option>
+      <option value="soccer_germany_bundesliga">Bundesliga (Germany)</option>
+      <option value="soccer_france_ligue_one">Ligue 1 (France)</option>
+      <option value="soccer_uefa_champs_league">UEFA Champions League</option>
+    </select>
+    <button class="primary" id="fetch-odds-btn">Refresh Live Odds</button>
+  </div>
+
+  <div id="status" class="status-msg">Loading live odds from serverless endpoint (/.netlify/functions/live-odds)...</div>
+
+  <div class="events-grid" id="events-grid"></div>
+
+  <script>
+    const sportSelect = document.getElementById('sport-select');
+    const fetchBtn = document.getElementById('fetch-odds-btn');
+    const statusEl = document.getElementById('status');
+    const eventsGrid = document.getElementById('events-grid');
+
+    async function loadOdds() {
+      const sport = sportSelect.value;
+      statusEl.textContent = `Fetching live odds for ${sport} from Netlify Functions...`;
+      eventsGrid.innerHTML = '';
+
+      try {
+        const res = await fetch(`/.netlify/functions/live-odds?sport=${encodeURIComponent(sport)}`);
+        const data = await res.json();
+
+        if (!res.ok && !data.events) {
+          statusEl.textContent = `Error: ${data.error || 'Failed to fetch odds'}`;
+          return;
+        }
+
+        const events = data.events || [];
+        statusEl.textContent = `Loaded ${events.length} fixture(s) for ${sport}. Wallet: ${data.oddsWallet} [Fetched: ${new Date(data.fetchedAt).toLocaleTimeString()}]`;
+
+        if (events.length === 0) {
+          eventsGrid.innerHTML = '<div style="grid-column: 1/-1; padding: 20px; background: #111827; border-radius: 8px;">No active fixtures currently open for betting in this league. Check back soon.</div>';
+          return;
+        }
+
+        eventsGrid.innerHTML = events.slice(0, 12).map(ev => {
+          let homePrice = '2.10', drawPrice = '3.20', awayPrice = '3.50';
+          if (ev.bookmakers && ev.bookmakers.length > 0) {
+            const h2h = ev.bookmakers[0].markets?.find(m => m.key === 'h2h');
+            if (h2h && h2h.outcomes) {
+              const hOut = h2h.outcomes.find(o => o.name === ev.home_team);
+              const aOut = h2h.outcomes.find(o => o.name === ev.away_team);
+              const dOut = h2h.outcomes.find(o => o.name.toLowerCase().includes('draw'));
+              if (hOut) homePrice = hOut.price;
+              if (dOut) drawPrice = dOut.price;
+              if (aOut) awayPrice = aOut.price;
+            }
+          }
+
+          const commence = ev.commence_time ? new Date(ev.commence_time).toLocaleString() : 'Upcoming';
+
+          return `
+            <div class="card">
+              <div class="card-header">
+                <span>${ev.sport_title || 'SOCCER'}</span>
+                <span>${commence}</span>
+              </div>
+              <div class="match-teams">${ev.home_team} vs ${ev.away_team}</div>
+              <div class="odds-row">
+                <button class="odd-btn" onclick="alert('Bet slip logged for 1 (Home Win: ${ev.home_team}) @ ${homePrice} via Wallet ${data.oddsWallet}')">
+                  <span class="odd-label">1 (${ev.home_team.slice(0, 8)})</span>
+                  <span class="odd-value">${homePrice}</span>
+                </button>
+                <button class="odd-btn" onclick="alert('Bet slip logged for X (Draw) @ ${drawPrice} via Wallet ${data.oddsWallet}')">
+                  <span class="odd-label">X (Draw)</span>
+                  <span class="odd-value">${drawPrice}</span>
+                </button>
+                <button class="odd-btn" onclick="alert('Bet slip logged for 2 (Away Win: ${ev.away_team}) @ ${awayPrice} via Wallet ${data.oddsWallet}')">
+                  <span class="odd-label">2 (${ev.away_team.slice(0, 8)})</span>
+                  <span class="odd-value">${awayPrice}</span>
+                </button>
+              </div>
+            </div>
+          `;
+        }).join('');
+      } catch (err) {
+        statusEl.textContent = `Fetch exception: ${err.message}`;
+      }
+    }
+
+    fetchBtn.addEventListener('click', loadOdds);
+    sportSelect.addEventListener('change', loadOdds);
+    loadOdds();
+  </script>
+</body>
+</html>

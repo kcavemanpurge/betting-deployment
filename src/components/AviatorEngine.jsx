@@ -1,34 +1,56 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { sound } from '../utils/audio.js';
-import { Plane, Zap, Play, CheckCircle, AlertTriangle, ShieldCheck, RefreshCw, ArrowUpRight, DollarSign, Activity } from 'lucide-react';
+import { 
+  Plane, 
+  Zap, 
+  Play, 
+  CheckCircle, 
+  AlertTriangle, 
+  ShieldCheck, 
+  RefreshCw, 
+  ArrowUpRight, 
+  DollarSign, 
+  Activity, 
+  Clock, 
+  Unlock, 
+  Lock, 
+  Timer,
+  UserCheck,
+  User,
+  Sparkles
+} from 'lucide-react';
 
 export function AviatorEngine({ 
   userId = 'user_caveman_01',
   initialBalance = 1000.00,
   externalBalance,
   onBalanceChange,
-  onSettlementComplete
+  onSettlementComplete,
+  onOpenProfile,
+  boostMultiplier = null
 }) {
   // Balance & Ledger State
   const [balance, setBalance] = useState(externalBalance ?? initialBalance);
-  const [withdrawAmount, setWithdrawAmount] = useState(100.00);
-  const [withdrawStatus, setWithdrawStatus] = useState('');
-  const [isWithdrawing, setIsWithdrawing] = useState(false);
 
   // Staking Parameters
   const [wagerStake, setWagerStake] = useState(50.00);
   const [targetOdds, setTargetOdds] = useState(2.00);
   const [autoLoop, setAutoLoop] = useState(false); // Automated continuous hands-free flight loop
-  const [autoCountdown, setAutoCountdown] = useState(null);
+  const [accaBoostActive, setAccaBoostActive] = useState(false);
+
+  // Countdown & Calm-Down Engine ("Calm down before flight / unlock betting for Ella")
+  const [countdownDuration, setCountdownDuration] = useState(5); // 5s or 3s selector
+  const [calmDownRemaining, setCalmDownRemaining] = useState(null); // null | number
+  const [isBettingUnlocked, setIsBettingUnlocked] = useState(true); // Ella / operator vetting unlock switch
+  const [flightPhase, setFlightPhase] = useState('IDLE'); // 'IDLE' | 'CALM_DOWN' | 'FLYING' | 'LOCKED' | 'CRASHED'
 
   // Flight State
   const [multiplier, setMultiplier] = useState(1.00);
   const [isRunning, setIsRunning] = useState(false);
   const [settlementLog, setSettlementLog] = useState('');
-  const [flightPhase, setFlightPhase] = useState('IDLE'); // 'IDLE' | 'FLYING' | 'LOCKED' | 'CRASHED'
   const hasSettledRef = useRef(false);
   const canvasRef = useRef(null);
-  const autoLoopTimerRef = useRef(null);
+  const countdownIntervalRef = useRef(null);
 
   // Sync balance if parent provides externalBalance
   useEffect(() => {
@@ -37,6 +59,14 @@ export function AviatorEngine({
     }
   }, [externalBalance]);
 
+  // Sync external boost multiplier from football accumulator
+  useEffect(() => {
+    if (boostMultiplier && boostMultiplier > 1.0) {
+      setTargetOdds(parseFloat(boostMultiplier.toFixed(2)));
+      setAccaBoostActive(true);
+    }
+  }, [boostMultiplier]);
+
   const updateBalance = useCallback((newBal) => {
     setBalance(newBal);
     if (onBalanceChange) {
@@ -44,38 +74,68 @@ export function AviatorEngine({
     }
   }, [onBalanceChange]);
 
-  // Schedule next automated flight in continuous auto loop mode
-  const scheduleNextAutoLaunch = useCallback(() => {
-    if (autoLoopTimerRef.current) clearTimeout(autoLoopTimerRef.current);
-    setAutoCountdown(3);
-
-    const interval = setInterval(() => {
-      setAutoCountdown(prev => {
-        if (prev <= 1) {
-          clearInterval(interval);
-          setAutoCountdown(null);
-          launchFlight();
-          return null;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    autoLoopTimerRef.current = interval;
+  // Clean up any running countdown timer
+  const clearCountdownTimer = useCallback(() => {
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current);
+      countdownIntervalRef.current = null;
+    }
   }, []);
 
-  // Launch Flight Trajectory
+  // Launch Flight Trajectory (Called after countdown hits 0 or on immediate bypass)
   const launchFlight = useCallback(() => {
     if (balance < wagerStake) {
       setSettlementLog('ERROR: Insufficient ledger balance for stake');
+      setFlightPhase('IDLE');
+      setCalmDownRemaining(null);
+      setIsBettingUnlocked(true);
       return;
     }
+
+    clearCountdownTimer();
+    setCalmDownRemaining(null);
+    setIsBettingUnlocked(false); // Lock betting during flight
     setMultiplier(1.00);
     setIsRunning(true);
     setFlightPhase('FLYING');
     setSettlementLog('');
     hasSettledRef.current = false;
-  }, [balance, wagerStake]);
+    sound.playLaunchWhoosh();
+  }, [balance, wagerStake, clearCountdownTimer]);
+
+  // Start Calm-Down Countdown before flight (e.g. 5s or 3s)
+  const startCalmDownCountdown = useCallback((durationOverride = null) => {
+    clearCountdownTimer();
+    const duration = durationOverride || countdownDuration;
+    setCalmDownRemaining(duration);
+    setFlightPhase('CALM_DOWN');
+    setIsBettingUnlocked(true); // Unlock betting for Ella / operator to adjust/arm
+    sound.playCountdownTick(duration);
+
+    let count = duration;
+    countdownIntervalRef.current = setInterval(() => {
+      count -= 1;
+      if (count > 0) {
+        setCalmDownRemaining(count);
+        sound.playCountdownTick(count);
+      } else {
+        clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
+        setCalmDownRemaining(0);
+        setTimeout(() => {
+          launchFlight();
+        }, 150);
+      }
+    }, 1000);
+  }, [countdownDuration, clearCountdownTimer, launchFlight]);
+
+  // Cancel Countdown
+  const cancelCountdown = useCallback(() => {
+    clearCountdownTimer();
+    setCalmDownRemaining(null);
+    setFlightPhase('IDLE');
+    setIsBettingUnlocked(true);
+  }, [clearCountdownTimer]);
 
   // Execute Automated Serverless Settlement
   const executeSettlement = useCallback(async (finalMult, triggerType) => {
@@ -137,10 +197,15 @@ export function AviatorEngine({
       }
     }
 
+    // After flight finishes, if autoLoop is enabled, trigger the Calm-Down Countdown for next flight
     if (autoLoop) {
-      scheduleNextAutoLaunch();
+      setTimeout(() => {
+        startCalmDownCountdown();
+      }, 1200);
+    } else {
+      setIsBettingUnlocked(true);
     }
-  }, [wagerStake, userId, balance, autoLoop, updateBalance, onSettlementComplete, scheduleNextAutoLaunch]);
+  }, [wagerStake, userId, balance, autoLoop, updateBalance, onSettlementComplete, startCalmDownCountdown]);
 
   // Flight trajectory loop
   useEffect(() => {
@@ -180,8 +245,13 @@ export function AviatorEngine({
           const nextBal = parseFloat(Math.max(0, balance - wagerStake).toFixed(2));
           updateBalance(nextBal);
 
+          // If autoLoop enabled, start the calm-down countdown for next flight
           if (autoLoop) {
-            scheduleNextAutoLaunch();
+            setTimeout(() => {
+              startCalmDownCountdown();
+            }, 1200);
+          } else {
+            setIsBettingUnlocked(true);
           }
           return;
         }
@@ -194,9 +264,9 @@ export function AviatorEngine({
 
     return () => {
       cancelAnimationFrame(animationId);
-      if (autoLoopTimerRef.current) clearTimeout(autoLoopTimerRef.current);
+      clearCountdownTimer();
     };
-  }, [isRunning, targetOdds, wagerStake, balance, autoLoop, executeSettlement, scheduleNextAutoLaunch, updateBalance]);
+  }, [isRunning, targetOdds, wagerStake, balance, autoLoop, executeSettlement, startCalmDownCountdown, updateBalance, clearCountdownTimer]);
 
   // Background Canvas Visualizer
   useEffect(() => {
@@ -241,6 +311,9 @@ export function AviatorEngine({
       } else if (flightPhase === 'LOCKED') {
         grad.addColorStop(0, 'rgba(16, 185, 129, 0.25)');
         grad.addColorStop(1, 'rgba(16, 185, 129, 0.0)');
+      } else if (flightPhase === 'CALM_DOWN') {
+        grad.addColorStop(0, 'rgba(234, 179, 8, 0.20)');
+        grad.addColorStop(1, 'rgba(234, 179, 8, 0.0)');
       } else {
         grad.addColorStop(0, 'rgba(6, 182, 212, 0.25)');
         grad.addColorStop(1, 'rgba(6, 182, 212, 0.0)');
@@ -255,7 +328,9 @@ export function AviatorEngine({
       ctx.fill();
 
       // Trajectory stroke
-      ctx.strokeStyle = flightPhase === 'CRASHED' ? '#f43f5e' : (flightPhase === 'LOCKED' ? '#10b981' : '#06b6d4');
+      ctx.strokeStyle = flightPhase === 'CRASHED' 
+        ? '#f43f5e' 
+        : (flightPhase === 'LOCKED' ? '#10b981' : (flightPhase === 'CALM_DOWN' ? '#eab308' : '#06b6d4'));
       ctx.lineWidth = 3;
       ctx.beginPath();
       ctx.moveTo(0, height);
@@ -263,7 +338,7 @@ export function AviatorEngine({
       ctx.stroke();
 
       // Plane / Vector beacon
-      ctx.fillStyle = flightPhase === 'CRASHED' ? '#f43f5e' : '#38bdf8';
+      ctx.fillStyle = flightPhase === 'CRASHED' ? '#f43f5e' : (flightPhase === 'CALM_DOWN' ? '#facc15' : '#38bdf8');
       ctx.beginPath();
       ctx.arc(currentX, currentY, 4, 0, Math.PI * 2);
       ctx.fill();
@@ -286,51 +361,10 @@ export function AviatorEngine({
     }
   };
 
-  // Serverless Withdrawal Handler ($100 Minimum Enforcement via Netlify Function)
-  const handleWithdrawal = async () => {
-    if (isNaN(withdrawAmount) || withdrawAmount < 100.00) {
-      setWithdrawStatus('ERROR: Minimum withdrawal threshold is $100.00 USD');
-      return;
-    }
-    if (withdrawAmount > balance) {
-      setWithdrawStatus('ERROR: Insufficient ledger balance');
-      return;
-    }
-
-    setIsWithdrawing(true);
-    setWithdrawStatus('DISPATCHING TO SERVERLESS CARD RAIL...');
-
-    try {
-      const res = await fetch('/.netlify/functions/withdraw', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId,
-          amount: withdrawAmount
-        })
-      });
-
-      const data = await res.json();
-      if (data.success) {
-        const nextBal = parseFloat((balance - withdrawAmount).toFixed(2));
-        updateBalance(nextBal);
-        setWithdrawStatus(`SUCCESS: $${data.amount} USD dispatched to settlement card rail (TX: ${data.transactionId}).`);
-      } else {
-        setWithdrawStatus(`ERROR: ${data.error || data.message || 'Withdrawal rejected'}`);
-      }
-    } catch (e) {
-      const nextBal = parseFloat((balance - withdrawAmount).toFixed(2));
-      updateBalance(nextBal);
-      setWithdrawStatus(`SUCCESS: $${withdrawAmount.toFixed(2)} USD dispatched to card rail.`);
-    } finally {
-      setIsWithdrawing(false);
-    }
-  };
-
   return (
     <div className="w-full max-w-2xl bg-slate-950 text-cyan-400 font-mono p-6 border border-cyan-500/30 rounded-lg shadow-2xl">
       {/* Header & Ledger Balance Display */}
-      <div className="flex justify-between items-center pb-4 mb-6 border-b border-slate-800">
+      <div className="flex justify-between items-center pb-4 mb-4 border-b border-slate-800">
         <div>
           <div className="flex items-center gap-2">
             <Plane className="w-5 h-5 text-cyan-400 transform -rotate-45" />
@@ -346,8 +380,89 @@ export function AviatorEngine({
         </div>
       </div>
 
+      {/* Low Balance Alert / Reload Prompt */}
+      {balance <= 0 && (
+        <div className="mb-4 p-3 rounded-lg bg-amber-950/60 border border-amber-500/40 text-amber-300 text-xs flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>LEDGER EXHAUSTED: $1,000 credit finished. Click to reload deposit.</span>
+          </div>
+          <button
+            onClick={() => onOpenProfile ? onOpenProfile() : updateBalance(100.00)}
+            className="px-3 py-1 rounded bg-amber-500 hover:bg-amber-400 text-black font-extrabold text-[11px] uppercase transition cursor-pointer whitespace-nowrap"
+          >
+            +$100 RENEWAL
+          </button>
+        </div>
+      )}
+
+      {/* Accumulator Multiplier Boost Banner */}
+      {accaBoostActive && (
+        <div className="mb-3 p-2 rounded bg-cyan-950/70 border border-cyan-500/40 text-cyan-300 text-xs flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-cyan-400" />
+            <span>ACCUMULATOR BOOST SYNCED: Target flight multiplier set to <strong className="text-white">{targetOdds.toFixed(2)}x</strong></span>
+          </div>
+          <button
+            onClick={() => setAccaBoostActive(false)}
+            className="text-[10px] text-slate-400 hover:text-white underline cursor-pointer"
+          >
+            Reset
+          </button>
+        </div>
+      )}
+
+      {/* Ella / Operator Betting Status Banner */}
+      <div className="mb-4 p-2.5 rounded border flex flex-wrap items-center justify-between gap-2 text-xs bg-slate-900/90 border-slate-800">
+        <div className="flex items-center gap-2">
+          {isBettingUnlocked ? (
+            <span className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-emerald-950/80 border border-emerald-500/40 text-emerald-400 font-bold">
+              <Unlock className="w-3.5 h-3.5" />
+              BETTING UNLOCKED (ELLA / OPERATOR)
+            </span>
+          ) : (
+            <span className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-rose-950/80 border border-rose-500/40 text-rose-400 font-bold">
+              <Lock className="w-3.5 h-3.5" />
+              BETTING LOCKED (FLIGHT IN FLIGHT)
+            </span>
+          )}
+          <span className="text-slate-400 text-[11px]">
+            ARMED: <strong className="text-white">${wagerStake.toFixed(2)}</strong> @ <strong className="text-cyan-400">{targetOdds.toFixed(2)}x</strong>
+          </span>
+        </div>
+
+        {/* Calm Down Duration Toggle (5s vs 3s) */}
+        <div className="flex items-center gap-1.5">
+          <span className="text-slate-400 text-[10px] font-bold flex items-center gap-1">
+            <Clock className="w-3 h-3 text-amber-400" /> CALM-DOWN:
+          </span>
+          <button
+            onClick={() => setCountdownDuration(5)}
+            disabled={flightPhase === 'FLYING'}
+            className={`px-2 py-0.5 text-[10px] rounded font-bold cursor-pointer transition ${
+              countdownDuration === 5
+                ? 'bg-amber-500 text-black'
+                : 'bg-slate-800 text-slate-400 hover:text-white'
+            }`}
+          >
+            5 SECONDS
+          </button>
+          <button
+            onClick={() => setCountdownDuration(3)}
+            disabled={flightPhase === 'FLYING'}
+            className={`px-2 py-0.5 text-[10px] rounded font-bold cursor-pointer transition ${
+              countdownDuration === 3
+                ? 'bg-amber-500 text-black'
+                : 'bg-slate-800 text-slate-400 hover:text-white'
+            }`}
+          >
+            3 SECONDS
+          </button>
+        </div>
+      </div>
+
       {/* Trajectory Canvas Display */}
-      <div className="relative h-48 bg-slate-900 border border-slate-800 rounded mb-6 flex items-center justify-center overflow-hidden shadow-inner">
+      <div className="relative h-48 bg-slate-900 border border-slate-800 rounded mb-4 flex items-center justify-center overflow-hidden shadow-inner">
         <canvas 
           ref={canvasRef} 
           width={580} 
@@ -355,9 +470,24 @@ export function AviatorEngine({
           className="absolute inset-0 w-full h-full pointer-events-none"
         />
 
-        <div className="relative z-10 text-5xl font-extrabold text-white tracking-wider drop-shadow-md select-none">
-          {multiplier.toFixed(2)}<span className="text-cyan-400">x</span>
-        </div>
+        {/* Multiplier / Countdown Center Display */}
+        {flightPhase === 'CALM_DOWN' && calmDownRemaining !== null ? (
+          <div className="relative z-10 flex flex-col items-center justify-center animate-pulse">
+            <div className="text-xs uppercase tracking-widest text-amber-400 font-bold mb-1 flex items-center gap-1.5">
+              <Timer className="w-4 h-4 text-amber-400 animate-spin" /> CALM DOWN // TAKEOFF IN
+            </div>
+            <div className="text-6xl font-black text-amber-300 drop-shadow-lg tracking-wider">
+              {calmDownRemaining}<span className="text-2xl text-amber-400">s</span>
+            </div>
+            <div className="text-[11px] text-emerald-400 font-semibold mt-1 bg-black/60 px-3 py-0.5 rounded border border-emerald-500/30">
+              BETTING UNLOCKED — ELLA MAY CONFIGURE STAKE
+            </div>
+          </div>
+        ) : (
+          <div className="relative z-10 text-5xl font-extrabold text-white tracking-wider drop-shadow-md select-none">
+            {multiplier.toFixed(2)}<span className="text-cyan-400">x</span>
+          </div>
+        )}
 
         {isRunning && (
           <div className="absolute top-3 left-3 text-xs text-cyan-400 animate-pulse flex items-center gap-1.5 z-10 bg-slate-950/80 px-2.5 py-1 rounded border border-cyan-500/20">
@@ -366,9 +496,10 @@ export function AviatorEngine({
           </div>
         )}
 
-        {autoCountdown !== null && (
-          <div className="absolute top-3 right-3 text-xs text-emerald-400 z-10 bg-slate-950/80 px-2.5 py-1 rounded border border-emerald-500/30">
-            NEXT AUTO-FLIGHT IN {autoCountdown}s
+        {flightPhase === 'CALM_DOWN' && (
+          <div className="absolute top-3 right-3 text-xs text-amber-400 z-10 bg-slate-950/90 px-2.5 py-1 rounded border border-amber-500/40 flex items-center gap-1.5">
+            <Clock className="w-3.5 h-3.5" />
+            CALM-DOWN: {calmDownRemaining}s REMAINING
           </div>
         )}
 
@@ -395,6 +526,7 @@ export function AviatorEngine({
                 <button
                   key={odds}
                   onClick={() => setTargetOdds(odds)}
+                  disabled={flightPhase === 'FLYING'}
                   className={`px-1.5 py-0.5 text-[10px] rounded cursor-pointer ${
                     targetOdds === odds 
                       ? 'bg-cyan-500 text-black font-bold' 
@@ -411,6 +543,7 @@ export function AviatorEngine({
             step="0.10"
             min="1.05"
             value={targetOdds}
+            disabled={flightPhase === 'FLYING'}
             onChange={(e) => setTargetOdds(parseFloat(e.target.value) || 1.10)}
             className="w-full bg-slate-900 border border-slate-800 p-2 text-white font-bold rounded text-sm focus:border-cyan-400 outline-none"
           />
@@ -422,6 +555,7 @@ export function AviatorEngine({
             type="number" 
             min="1"
             value={wagerStake}
+            disabled={flightPhase === 'FLYING'}
             onChange={(e) => setWagerStake(parseFloat(e.target.value) || 1)}
             className="w-full bg-slate-900 border border-slate-800 p-2 text-white font-bold rounded text-sm focus:border-cyan-400 outline-none"
           />
@@ -436,6 +570,7 @@ export function AviatorEngine({
             <button
               key={amt}
               onClick={() => setWagerStake(amt)}
+              disabled={flightPhase === 'FLYING'}
               className={`px-2.5 py-1 text-xs rounded font-bold transition cursor-pointer ${
                 wagerStake === amt
                   ? 'bg-cyan-500 text-black'
@@ -460,16 +595,9 @@ export function AviatorEngine({
         </div>
       </div>
 
-      {/* Action Trigger Buttons */}
-      <div className="mb-6">
-        {!isRunning ? (
-          <button 
-            onClick={launchFlight}
-            className="w-full py-4 bg-cyan-500 hover:bg-cyan-400 text-black font-extrabold text-base tracking-widest uppercase rounded shadow-lg shadow-cyan-500/20 transition cursor-pointer active:scale-[0.99]"
-          >
-            LAUNCH AUTO-SETTLEMENT VECTOR (${wagerStake.toFixed(2)})
-          </button>
-        ) : (
+      {/* Action Trigger Buttons: Calm-Down Countdown / Settle Now / Bypass */}
+      <div className="mb-4 space-y-2">
+        {flightPhase === 'FLYING' ? (
           <button 
             onClick={handleInstantAutoSettle}
             className="w-full py-4 bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold text-base tracking-widest uppercase rounded shadow-lg shadow-emerald-500/20 transition cursor-pointer active:scale-[0.99] flex items-center justify-center gap-2"
@@ -477,52 +605,64 @@ export function AviatorEngine({
             <Zap className="w-5 h-5 text-black" />
             INSTANT AUTO-SETTLE NOW [${(wagerStake * multiplier).toFixed(2)} @ {multiplier.toFixed(2)}x]
           </button>
+        ) : flightPhase === 'CALM_DOWN' ? (
+          <div className="grid grid-cols-2 gap-2">
+            <button 
+              onClick={launchFlight}
+              className="py-3.5 bg-cyan-500 hover:bg-cyan-400 text-black font-extrabold text-sm tracking-wider uppercase rounded shadow-lg shadow-cyan-500/20 transition cursor-pointer flex items-center justify-center gap-2"
+            >
+              <Plane className="w-4 h-4 transform -rotate-45" />
+              TAKEOFF NOW ({calmDownRemaining}s)
+            </button>
+            <button 
+              onClick={cancelCountdown}
+              className="py-3.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-sm tracking-wider uppercase rounded border border-slate-700 transition cursor-pointer"
+            >
+              CANCEL COUNTDOWN
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <button 
+              onClick={() => startCalmDownCountdown(countdownDuration)}
+              className="sm:col-span-2 py-4 bg-amber-500 hover:bg-amber-400 text-black font-extrabold text-sm tracking-wider uppercase rounded shadow-lg shadow-amber-500/20 transition cursor-pointer active:scale-[0.99] flex items-center justify-center gap-2"
+            >
+              <Clock className="w-4 h-4" />
+              START {countdownDuration}s CALM-DOWN & UNLOCK BETTING (${wagerStake.toFixed(2)})
+            </button>
+            <button 
+              onClick={launchFlight}
+              className="py-4 bg-cyan-600 hover:bg-cyan-500 text-black font-extrabold text-xs tracking-wider uppercase rounded shadow-md transition cursor-pointer"
+              title="Skip countdown and take off instantly"
+            >
+              IMMEDIATE TAKEOFF
+            </button>
+          </div>
         )}
       </div>
 
       {settlementLog && (
-        <div className="mb-6 p-2.5 bg-slate-900 border border-emerald-500/40 text-emerald-400 text-xs rounded flex items-center justify-between">
+        <div className="mb-4 p-2.5 bg-slate-900 border border-emerald-500/40 text-emerald-400 text-xs rounded flex items-center justify-between">
           <span>// {settlementLog}</span>
           <span className="text-[10px] text-slate-500 font-mono">WORM IMMUTABLE</span>
         </div>
       )}
 
-      {/* SERVERLESS CARD RAIL WITHDRAWAL SECTION */}
-      <div className="pt-6 border-t border-slate-800">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-bold text-white tracking-wider flex items-center gap-1.5">
-            <ShieldCheck className="w-4 h-4 text-emerald-400" /> // SERVERLESS WITHDRAWAL RAIL
-          </h3>
-          <span className="text-[10px] text-emerald-400 font-mono px-1.5 py-0.5 rounded bg-emerald-950/60 border border-emerald-500/30">
-            NETLIFY FUNCTION (/.netlify/functions/withdraw)
+      {/* PROPERLY STRUCTURED USER PROFILE & WITHDRAWAL GATEWAY (Cleaned up from Aviator screen) */}
+      <div className="pt-4 border-t border-slate-800/80 flex items-center justify-between text-xs">
+        <div className="flex items-center gap-2">
+          <ShieldCheck className="w-4 h-4 text-emerald-400" />
+          <span className="text-slate-400 text-[11px]">
+            CARD RAIL WITHDRAWALS & DEPOSITS:
           </span>
         </div>
-        
-        <div className="flex gap-3 mb-2">
-          <input 
-            type="number" 
-            min="100"
-            value={withdrawAmount}
-            onChange={(e) => setWithdrawAmount(parseFloat(e.target.value) || 0)}
-            className="flex-1 bg-slate-900 border border-slate-800 p-2 text-white font-bold rounded text-sm focus:border-emerald-400 outline-none"
-            placeholder="Min $100.00"
-          />
-          <button 
-            onClick={handleWithdrawal}
-            disabled={isWithdrawing}
-            className="px-6 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 text-black font-bold text-xs uppercase rounded transition cursor-pointer active:scale-95 flex items-center gap-1.5"
-          >
-            {isWithdrawing && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-            EXECUTE WITHDRAWAL
-          </button>
-        </div>
-        <p className="text-[10px] text-slate-500 mb-2">* Minimum withdrawal threshold: $100.00 USD | Direct Netlify Serverless Card Rail</p>
-        
-        {withdrawStatus && (
-          <div className={`text-xs font-semibold p-2 rounded bg-slate-900/80 border ${withdrawStatus.startsWith('ERROR') ? 'text-rose-400 border-rose-500/30' : 'text-emerald-400 border-emerald-500/30'}`}>
-            // {withdrawStatus}
-          </div>
-        )}
+        <button
+          onClick={onOpenProfile}
+          className="px-3 py-1.5 rounded bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-slate-700 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+        >
+          <User className="w-3.5 h-3.5" />
+          MANAGE PROFILE & WITHDRAWALS
+        </button>
       </div>
     </div>
   );
