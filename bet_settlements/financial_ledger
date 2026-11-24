@@ -39,3 +39,4 @@ CREATE TABLE IF NOT EXISTS bet_history (
   selections JSONB NOT NULL DEFAULT '[]'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+);
