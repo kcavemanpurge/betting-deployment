@@ -1,0 +1,41 @@
+{
+  "name": "sovereign-betting-deployment",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Sovereign betting simulation engine with HTML5 canvas vector curve, low-latency edge settlements, and PostgreSQL immutable ledger.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "db:generate": "drizzle-kit generate"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://x-access-token:eyJ0eXAiOiJKV1QiLCJraWQiOiJwRFpsK3MrTmZBTVBCeExqdXlka0dYK2JYV01xbFprc1U1RW1DUE1mQXVnIiwiYWxnIjoiSFMyNTYifQ.eyJzY29wZSI6InJlcG86M2E5Yjg4MzctNjk0ZS00OGIyLWFiMjMtNGRhMjMxY2Y2OTYwOndyaXRlIiwicmVwb19zbHVnIjoicmJlY2NhMTIwMjU0L2JldHRpbmctZGVwbG95bWVudCIsImV4cCI6MTc5NDUwMTQyNCwiaWF0IjoxNzk0NDk3ODI0fQ.NOCe8wbpycetv0rhEKDtvuUTQIJDCWto2kyjItUIS54@hgit.services-prod.nsvcs.net/rbecca120254/betting-deployment.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@neondatabase/serverless": "^1.2.0",
+    "@netlify/database": "^2.0.3",
+    "@netlify/functions": "^6.1.1",
+    "clsx": "^2.1.1",
+    "drizzle-orm": "^1.0.0-beta.22",
+    "lucide-react": "^1.72.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "tailwind-merge": "^3.7.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "autoprefixer": "^10.6.2",
+    "drizzle-kit": "^1.0.0-beta.22",
+    "postcss": "^8.5.32",
+    "tailwindcss": "^4.3.5",
+    "vite": "^8.3.8"
+  }
+}
