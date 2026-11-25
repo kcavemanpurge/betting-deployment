@@ -165,13 +165,13 @@ export async function handler(event) {
       const payoutNum = Number(record.payout_amount);
 
       await client.query(
-        `INSERT INTO user_balances (user_id, promo_balance, profit_balance, updated_at)
-         VALUES ($1, 0, $2, NOW())
+        `INSERT INTO user_balances (user_id, available_balance, updated_at)
+         VALUES ($1, $2, NOW())
          ON CONFLICT (user_id)
          DO UPDATE SET
-           profit_balance = user_balances.profit_balance + EXCLUDED.profit_balance,
+           available_balance = user_balances.available_balance + EXCLUDED.available_balance,
            updated_at = NOW()`,
-        [userId, payoutNum.toFixed(4)]
+        [userId, payoutNum.toFixed(2)]
       );
 
       await client.query(
