@@ -182,29 +182,29 @@ export async function handler(event) {
       await client.query('BEGIN');
 
       const balRes = await client.query(
-        'SELECT profit_balance FROM user_balances WHERE user_id = $1 FOR UPDATE',
+        'SELECT available_balance FROM user_balances WHERE user_id = $1 FOR UPDATE',
         [userId]
       );
 
-      const currentProfit = Number(balRes.rows[0]?.profit_balance ?? 0);
-      if (currentProfit < numAmount) {
+      const currentBalance = Number(balRes.rows[0]?.available_balance ?? 0);
+      if (currentBalance < numAmount) {
         await client.query('ROLLBACK');
         return {
           statusCode: 400,
           headers: corsHeaders,
           body: JSON.stringify({
             ok: false,
-            error: 'INSUFFICIENT_PROFIT_BALANCE',
-            availableProfit: currentProfit.toFixed(4),
+            error: 'INSUFFICIENT_BALANCE',
+            availableBalance: currentBalance.toFixed(2),
           }),
         };
       }
 
       await client.query(
         `UPDATE user_balances
-         SET profit_balance = profit_balance - $2, updated_at = NOW()
+         SET available_balance = available_balance - $2, updated_at = NOW()
          WHERE user_id = $1`,
-        [userId, numAmount.toFixed(4)]
+        [userId, numAmount.toFixed(2)]
       );
 
       const insertReq = await client.query(
