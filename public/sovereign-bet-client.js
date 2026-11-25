@@ -178,6 +178,6 @@ function renderSportsAndFooter(matches = []) {
 
   if (footerEl) {
     footerEl.textContent =
-      'Monthly $100 disbursement applies on the scheduled monthly cycle — wait for monthly $100 disbursement.';
+      'Verified Netlify Serverless Settlement & Crypto Rail Portal.';
   }
 }

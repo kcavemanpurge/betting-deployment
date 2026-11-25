@@ -18,7 +18,7 @@ function loadPersistedRecords() {
   }
 }
 
-export function LiveOddsPortal({ userId = '', onAccumulatorOddsChange }) {
+export function LiveOddsPortal({ userId = '', onAccumulatorOddsChange, onTogglePick, picks = [] }) {
   const initialPersisted = useMemo(() => loadPersistedRecords(), []);
 
   const [sport, setSport] = useState('soccer_epl');
@@ -82,6 +82,19 @@ export function LiveOddsPortal({ userId = '', onAccumulatorOddsChange }) {
   const addSelectionToSlip = (ev, outcomeName, rawPrice) => {
     const numericPrice = Number(rawPrice);
     if (!Number.isFinite(numericPrice) || numericPrice <= 1) return;
+
+    if (onTogglePick) {
+      onTogglePick({
+        id: `${ev.id}_${outcomeName}`,
+        matchId: ev.id,
+        match: `${ev.home_team} vs ${ev.away_team}`,
+        league: ev.sport_title || sport,
+        selection: outcomeName,
+        selectionName: outcomeName,
+        price: numericPrice,
+        odds: numericPrice,
+      });
+    }
 
     const legId = `${ev.id}::${outcomeName}`;
     setFeaturedEventId(ev.id);
@@ -537,8 +550,8 @@ export function LiveOddsPortal({ userId = '', onAccumulatorOddsChange }) {
           </aside>
         </div>
 
-        <div className="pt-3 border-t border-slate-900 text-[11px] text-slate-500">
-          Monthly $100 disbursement applies on the scheduled monthly cycle — wait for monthly $100 disbursement.
+        <div className="pt-3 border-t border-slate-900 text-[11px] text-slate-500 text-center">
+          Verified Netlify Serverless Head-to-Head Odds Routing &amp; Multi-Market Telemetry.
         </div>
       </div>
     </div>

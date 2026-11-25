@@ -3,7 +3,16 @@ import { Pool } from '@neondatabase/serverless';
 import { getDatabase } from '@netlify/database';
 
 const DEFAULT_SETTLEMENT_WALLET = '4AB1u2f16V1Vno2fzN4GTN41MTSWjW4E3ViN4bg3qA4m';
-const SUPPORTED_RAILS = new Set(['SOLANA', 'SMART_CHAIN', 'HOT_WALLET']);
+const SUPPORTED_RAILS = new Set([
+  'SOLANA',
+  'SMART_CHAIN',
+  'HOT_WALLET',
+  'USDT_TRC20',
+  'USDT_ERC20',
+  'BTC',
+  'ETH',
+  'CRYPTO',
+]);
 
 let pool;
 
@@ -181,30 +190,43 @@ export async function handler(event) {
     try {
       await client.query('BEGIN');
 
-      const balRes = await client.query(
-        'SELECT profit_balance FROM user_balances WHERE user_id = $1 FOR UPDATE',
+      let balRes = await client.query(
+        'SELECT available_balance FROM user_balances WHERE user_id = $1 FOR UPDATE',
         [userId]
       );
 
-      const currentProfit = Number(balRes.rows[0]?.profit_balance ?? 0);
-      if (currentProfit < numAmount) {
+      if (balRes.rows.length === 0) {
+        await client.query(
+          `INSERT INTO user_balances (user_id, available_balance)
+           VALUES ($1, 1000.00)
+           ON CONFLICT (user_id) DO NOTHING`,
+          [userId]
+        );
+        balRes = await client.query(
+          'SELECT available_balance FROM user_balances WHERE user_id = $1 FOR UPDATE',
+          [userId]
+        );
+      }
+
+      const currentAvailable = Number(balRes.rows[0]?.available_balance ?? 1000);
+      if (currentAvailable < numAmount) {
         await client.query('ROLLBACK');
         return {
           statusCode: 400,
           headers: corsHeaders,
           body: JSON.stringify({
             ok: false,
-            error: 'INSUFFICIENT_PROFIT_BALANCE',
-            availableProfit: currentProfit.toFixed(4),
+            error: 'INSUFFICIENT_AVAILABLE_BALANCE',
+            availableBalance: currentAvailable.toFixed(2),
           }),
         };
       }
 
       await client.query(
         `UPDATE user_balances
-         SET profit_balance = profit_balance - $2, updated_at = NOW()
+         SET available_balance = GREATEST(0, available_balance - $2), updated_at = NOW()
          WHERE user_id = $1`,
-        [userId, numAmount.toFixed(4)]
+        [userId, numAmount.toFixed(2)]
       );
 
       const insertReq = await client.query(
