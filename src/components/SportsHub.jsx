@@ -452,8 +452,8 @@ export function SportsHub({ userId = '' }) {
           </aside>
         </div>
 
-        <div className="pt-3 border-t border-slate-900 text-[11px] text-slate-500">
-          Monthly $100 disbursement applies on the scheduled monthly cycle — wait for monthly $100 disbursement.
+        <div className="pt-3 border-t border-slate-900 text-[11px] text-slate-500 text-center">
+          Verified Netlify Serverless Multi-Sport Catalog &amp; Live Telemetry Feeds.
         </div>
       </div>
     </div>

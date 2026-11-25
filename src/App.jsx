@@ -3,6 +3,7 @@ import { BettingCanvas } from './components/BettingCanvas.jsx';
 import { AviatorEngine } from './components/AviatorEngine.jsx';
 import { Top5FootballSim } from './components/Top5FootballSim.jsx';
 import { LiveOddsPortal } from './components/LiveOddsPortal.jsx';
+import { SportsbookEngine } from './components/SportsbookEngine.jsx';
 import { BetSlip } from './components/BetSlip.jsx';
 import { UserProfileModal } from './components/UserProfileModal.jsx';
 import { sound } from './utils/audio.js';
@@ -18,13 +19,47 @@ import {
   Trophy,
   Flame,
   User,
+  ArrowUpRight,
+  ArrowDownLeft,
+  Receipt,
+  Layers,
+  Coins,
+  History,
+  Zap,
 } from 'lucide-react';
 
 const SETTLEMENT_WALLET = '4AB1u2f16V1Vno2fzN4GTN41MTSWjW4E3ViN4bg3qA4m';
+const BALANCE_STORAGE_KEY = 'sovereign_available_balance';
+const TICKETS_STORAGE_KEY = 'sovereign_bet_tickets_v1';
+const USER_ID_KEY = 'sovereign_user_id';
 
 export default function App() {
-  const [userId, setUserId] = useState('');
-  const [balance, setBalance] = useState(0);
+  const [userId, setUserId] = useState(() => {
+    try {
+      return localStorage.getItem(USER_ID_KEY) || 'ApexPlayer_01';
+    } catch {
+      return 'ApexPlayer_01';
+    }
+  });
+
+  const [balance, setBalance] = useState(() => {
+    try {
+      const saved = localStorage.getItem(BALANCE_STORAGE_KEY);
+      return saved !== null ? Math.max(0, parseFloat(saved)) : 1000.0;
+    } catch {
+      return 1000.0;
+    }
+  });
+
+  const [tickets, setTickets] = useState(() => {
+    try {
+      const saved = localStorage.getItem(TICKETS_STORAGE_KEY);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
   const [engineMode, setEngineMode] = useState('aviator');
   const [wagerAmount, setWagerAmount] = useState(10.0);
   const [autoCashout, setAutoCashout] = useState('2.00');
@@ -33,21 +68,46 @@ export default function App() {
   const [settlements, setSettlements] = useState([]);
   const [isLoadingLedger, setIsLoadingLedger] = useState(false);
   const [ledgerSource, setLedgerSource] = useState('POSTGRES_LEDGER');
-  const [activeTab, setActiveTab] = useState('cockpit');
+  const [activeTab, setActiveTab] = useState('sportsbook');
 
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [profileModalTab, setProfileModalTab] = useState('withdraw');
   const [betPicks, setBetPicks] = useState([]);
   const [boostMultiplier, setBoostMultiplier] = useState(null);
+
+  // Sync balance to localStorage
+  const updateBalance = useCallback((newBal) => {
+    const clamped = Math.max(0, Number(newBal.toFixed(2)));
+    setBalance(clamped);
+    try {
+      localStorage.setItem(BALANCE_STORAGE_KEY, clamped.toString());
+    } catch {}
+  }, []);
+
+  const handleUserChange = (newId) => {
+    const trimmed = (newId || 'ApexPlayer_01').trim();
+    setUserId(trimmed);
+    try {
+      localStorage.setItem(USER_ID_KEY, trimmed);
+    } catch {}
+  };
+
+  const handleTicketsChange = (updatedTickets) => {
+    setTickets(updatedTickets);
+    try {
+      localStorage.setItem(TICKETS_STORAGE_KEY, JSON.stringify(updatedTickets));
+    } catch {}
+  };
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const mode = params.get('mode');
       const tab = params.get('tab');
-      if (mode === 'aviator' || mode === 'vector') {
-        setEngineMode(mode);
-        setActiveTab('cockpit');
-      } else if (tab && tab !== 'terminal') {
+      if (mode === 'aviator' || mode === 'trajectory' || mode === 'vector') {
+        setEngineMode(mode === 'vector' ? 'trajectory' : mode);
+        setActiveTab('aviator');
+      } else if (tab) {
         setActiveTab(tab);
       }
     }
@@ -86,10 +146,11 @@ export default function App() {
     const wager = Number(newSettlement.wager_amount) || 0;
     const profit = payout - wager;
 
-    setBalance((prev) => Number(Math.max(0, prev + profit).toFixed(2)));
+    updateBalance(balance + profit);
     setSettlements((prev) => [newSettlement, ...prev.slice(0, 19)]);
   };
 
+  // Toggle accumulator picks across matches
   const handleTogglePick = (pick) => {
     setBetPicks((prev) => {
       const exists = prev.some(
@@ -100,6 +161,7 @@ export default function App() {
           (p) => p.id !== pick.id && !(p.matchId === pick.matchId && p.selection === pick.selection)
         );
       }
+      // If pick is from the same match, replace it; if from another match, ACCUMULATE!
       const withoutSameMatch = prev.filter((p) => p.matchId !== pick.matchId);
       return [...withoutSameMatch, pick];
     });
@@ -114,142 +176,240 @@ export default function App() {
   };
 
   const handleDeductStake = (amount) => {
-    setBalance((prev) => Math.max(0, Number((prev - amount).toFixed(2))));
+    updateBalance(balance - amount);
+  };
+
+  const handleAddWinnings = (amount) => {
+    updateBalance(balance + amount);
   };
 
   const handleApplyAccaToFlight = (odds) => {
     setBoostMultiplier(odds);
-    setActiveTab('cockpit');
+    setActiveTab('aviator');
     setEngineMode('aviator');
   };
 
+  const openTicketsCount = tickets.filter((t) => t.status === 'OPEN').length;
   const totalSettledCount = settlements.length;
   const highestMultiplier = settlements.reduce(
     (max, curr) => Math.max(max, Number(curr.multiplier) || 1),
     1.0
   );
 
+  const openWithdrawModal = () => {
+    setProfileModalTab('withdraw');
+    setIsProfileOpen(true);
+  };
+
+  const openDepositModal = () => {
+    setProfileModalTab('deposit');
+    setIsProfileOpen(true);
+  };
+
+  const openAccountModal = () => {
+    setProfileModalTab('profile');
+    setIsProfileOpen(true);
+  };
+
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col">
-      <header className="border-b border-slate-200 bg-white sticky top-0 z-40 shadow-xs">
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-cyan-500 selection:text-slate-950">
+      {/* Top Navigation Bar */}
+      <header className="border-b border-slate-800 bg-slate-900/90 backdrop-blur-md sticky top-0 z-40 shadow-xl">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3.5 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold">
-              <Plane className="w-5 h-5" />
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center text-slate-950 font-black shadow-lg shadow-cyan-500/20">
+              <Trophy className="w-5 h-5 text-slate-950" />
             </div>
             <div>
-              <div className="text-base font-extrabold tracking-tight text-slate-900">
-                Match &amp; Flight Sportsbook
+              <div className="text-base font-black tracking-tight text-white flex items-center gap-2">
+                APEX SOVEREIGN SPORTSBOOK &amp; CASINO
               </div>
-              <div className="text-xs text-slate-500">
-                Wallet: <span className="font-mono text-slate-700">{SETTLEMENT_WALLET}</span>
+              <div className="text-[11px] text-slate-400 flex items-center gap-1.5 font-mono">
+                <span>Odds Settlement:</span>
+                <span className="text-cyan-400 font-bold">{SETTLEMENT_WALLET.slice(0, 12)}...{SETTLEMENT_WALLET.slice(-6)}</span>
               </div>
             </div>
           </div>
 
           <div className="flex items-center gap-3 text-xs">
+            {/* Audio Mute toggle */}
             <button
               onClick={toggleMute}
-              className="p-2 rounded-lg bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 transition cursor-pointer"
+              className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 transition cursor-pointer"
               title={isMuted ? 'Unmute Sound' : 'Mute Sound'}
             >
-              {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4 text-blue-700" />}
+              {isMuted ? <VolumeX className="w-4 h-4 text-slate-400" /> : <Volume2 className="w-4 h-4 text-cyan-400" />}
             </button>
 
-            <div className="px-3.5 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center gap-2">
-              <DollarSign className="w-4 h-4 text-emerald-700" />
+            {/* Available Balance Box */}
+            <div className="px-3.5 py-1.5 rounded-xl bg-slate-950 border border-emerald-500/30 flex items-center gap-2.5 shadow-inner">
+              <DollarSign className="w-4 h-4 text-emerald-400" />
               <div>
-                <span className="text-[10px] text-emerald-800 block leading-tight font-semibold">
-                  BALANCE
+                <span className="text-[10px] text-slate-400 block leading-tight font-bold uppercase tracking-wider">
+                  Available Balance
                 </span>
-                <span className="font-bold text-emerald-700 text-sm">
+                <span className="font-black text-emerald-400 text-sm font-mono">
                   ${balance.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                 </span>
               </div>
             </div>
 
+            {/* Quick Crypto Withdraw Button */}
             <button
-              onClick={() => setIsProfileOpen(true)}
-              className="px-3 py-2 rounded-lg bg-blue-700 hover:bg-blue-800 text-white text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer"
+              onClick={openWithdrawModal}
+              className="px-3.5 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-black transition flex items-center gap-1.5 cursor-pointer shadow-lg shadow-cyan-500/20 active:scale-[0.98]"
             >
-              <User className="w-3.5 h-3.5" />
-              <span>{userId || 'Account'}</span>
+              <ArrowUpRight className="w-3.5 h-3.5" />
+              <span>Withdraw</span>
+            </button>
+
+            {/* Quick Deposit Button */}
+            <button
+              onClick={openDepositModal}
+              className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-md shadow-emerald-600/20 active:scale-[0.98]"
+            >
+              <ArrowDownLeft className="w-3.5 h-3.5" />
+              <span>Deposit</span>
+            </button>
+
+            {/* User Account / Profile */}
+            <button
+              onClick={openAccountModal}
+              className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border border-slate-700"
+            >
+              <User className="w-3.5 h-3.5 text-cyan-400" />
+              <span className="font-mono">{userId}</span>
             </button>
           </div>
         </div>
       </header>
 
+      {/* Main Content Area */}
       <main className="max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 space-y-6 flex-1">
-        <div className="flex border-b border-slate-200 gap-2 text-xs overflow-x-auto pb-1">
+        {/* Navigation Tabs */}
+        <div className="flex border-b border-slate-800 gap-2 text-xs overflow-x-auto pb-1 font-bold">
           <button
-            onClick={() => setActiveTab('cockpit')}
-            className={`pb-2.5 px-3 font-semibold transition border-b-2 flex items-center gap-2 cursor-pointer whitespace-nowrap ${
-              activeTab === 'cockpit'
-                ? 'border-blue-700 text-blue-700'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
+            onClick={() => setActiveTab('sportsbook')}
+            className={`pb-2.5 px-4 transition border-b-2 flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+              activeTab === 'sportsbook'
+                ? 'border-cyan-400 text-cyan-400'
+                : 'border-transparent text-slate-400 hover:text-white'
             }`}
           >
-            <Plane className="w-4 h-4" /> Aviator &amp; Flight
+            <Trophy className="w-4 h-4 text-cyan-400" /> Top 10 Sportsbook &amp; Accumulator
+          </button>
+          <button
+            onClick={() => setActiveTab('aviator')}
+            className={`pb-2.5 px-4 transition border-b-2 flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+              activeTab === 'aviator'
+                ? 'border-cyan-400 text-cyan-400'
+                : 'border-transparent text-slate-400 hover:text-white'
+            }`}
+          >
+            <Plane className="w-4 h-4 text-rose-400" /> Aviator Crash Engine
+          </button>
+          <button
+            onClick={() => setActiveTab('tickets')}
+            className={`pb-2.5 px-4 transition border-b-2 flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+              activeTab === 'tickets'
+                ? 'border-cyan-400 text-cyan-400'
+                : 'border-transparent text-slate-400 hover:text-white'
+            }`}
+          >
+            <Receipt className="w-4 h-4 text-emerald-400" /> My Tickets ({tickets.length})
+            {openTicketsCount > 0 && (
+              <span className="px-1.5 py-0.2 rounded-full bg-emerald-500 text-slate-950 text-[10px] font-black">
+                {openTicketsCount} OPEN
+              </span>
+            )}
           </button>
           <button
             onClick={() => setActiveTab('football')}
-            className={`pb-2.5 px-3 font-semibold transition border-b-2 flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+            className={`pb-2.5 px-4 transition border-b-2 flex items-center gap-2 cursor-pointer whitespace-nowrap ${
               activeTab === 'football'
-                ? 'border-blue-700 text-blue-700'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
+                ? 'border-cyan-400 text-cyan-400'
+                : 'border-transparent text-slate-400 hover:text-white'
             }`}
           >
-            <Trophy className="w-4 h-4 text-amber-600" /> Top 5 Football (26/27)
+            <Flame className="w-4 h-4 text-amber-400" /> Top 5 League Sim (26/27)
           </button>
           <button
             onClick={() => setActiveTab('odds')}
-            className={`pb-2.5 px-3 font-semibold transition border-b-2 flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+            className={`pb-2.5 px-4 transition border-b-2 flex items-center gap-2 cursor-pointer whitespace-nowrap ${
               activeTab === 'odds'
-                ? 'border-blue-700 text-blue-700'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
+                ? 'border-cyan-400 text-cyan-400'
+                : 'border-transparent text-slate-400 hover:text-white'
             }`}
           >
-            <Flame className="w-4 h-4 text-emerald-700" /> Sports &amp; Live Events
+            <Activity className="w-4 h-4 text-cyan-400" /> Live Odds Exchange
           </button>
           <button
             onClick={() => setActiveTab('schema')}
-            className={`pb-2.5 px-3 font-semibold transition border-b-2 flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+            className={`pb-2.5 px-4 transition border-b-2 flex items-center gap-2 cursor-pointer whitespace-nowrap ${
               activeTab === 'schema'
-                ? 'border-blue-700 text-blue-700'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
+                ? 'border-cyan-400 text-cyan-400'
+                : 'border-transparent text-slate-400 hover:text-white'
             }`}
           >
-            <Database className="w-4 h-4" /> Ledger Schema
+            <Database className="w-4 h-4 text-slate-400" /> Database Ledger
           </button>
         </div>
 
-        {activeTab === 'cockpit' && (
+        {/* TAB 1: TOP 10 SPORTSBOOK & ACCUMULATOR */}
+        {activeTab === 'sportsbook' && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <div className="lg:col-span-8">
+              <SportsbookEngine picks={betPicks} onTogglePick={handleTogglePick} />
+            </div>
+            <div className="lg:col-span-4 space-y-6">
+              <BetSlip
+                picks={betPicks}
+                onRemovePick={handleRemovePick}
+                onClearPicks={handleClearPicks}
+                balance={balance}
+                onDeductStake={handleDeductStake}
+                onApplyAccaToFlight={handleApplyAccaToFlight}
+                onAddWinnings={handleAddWinnings}
+                tickets={tickets}
+                onTicketsChange={handleTicketsChange}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* TAB 2: AVIATOR CRASH ENGINE */}
+        {activeTab === 'aviator' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             <div className="lg:col-span-8 space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3 rounded-xl border border-slate-200 shadow-xs">
+              <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900 p-3.5 rounded-2xl border border-slate-800 shadow-md">
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setEngineMode('aviator')}
-                    className={`px-3.5 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+                    className={`px-4 py-2 rounded-xl text-xs font-black transition flex items-center gap-2 cursor-pointer ${
                       engineMode === 'aviator'
-                        ? 'bg-blue-700 text-white'
-                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                        ? 'bg-rose-600 text-white shadow-lg shadow-rose-600/30'
+                        : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
                     }`}
                   >
-                    <Plane className="w-3.5 h-3.5" />
-                    Aviator
+                    <Plane className="w-4 h-4 transform -rotate-45" />
+                    Aviator Crash
                   </button>
                   <button
-                    onClick={() => setEngineMode('vector')}
-                    className={`px-3.5 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
-                      engineMode === 'vector'
-                        ? 'bg-blue-700 text-white'
-                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                    onClick={() => setEngineMode('trajectory')}
+                    className={`px-4 py-2 rounded-xl text-xs font-black transition flex items-center gap-2 cursor-pointer ${
+                      engineMode === 'trajectory'
+                        ? 'bg-rose-600 text-white shadow-lg shadow-rose-600/30'
+                        : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
                     }`}
                   >
-                    <Activity className="w-3.5 h-3.5" />
-                    Flight Curve
+                    <Activity className="w-4 h-4" />
+                    Curve Trajectory
                   </button>
+                </div>
+
+                <div className="text-xs text-slate-400 font-semibold flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                  <span>Provably Fair Multiplier Engine</span>
                 </div>
               </div>
 
@@ -258,9 +418,9 @@ export default function App() {
                   <AviatorEngine
                     userId={userId}
                     externalBalance={balance}
-                    onBalanceChange={(newBal) => setBalance(newBal)}
+                    onBalanceChange={updateBalance}
                     onSettlementComplete={handleSettlementComplete}
-                    onOpenProfile={() => setIsProfileOpen(true)}
+                    onOpenProfile={openWithdrawModal}
                     boostMultiplier={boostMultiplier}
                   />
                 </div>
@@ -273,25 +433,25 @@ export default function App() {
                     onSettlementComplete={handleSettlementComplete}
                   />
 
-                  <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-4">
-                    <div className="text-xs font-bold text-slate-800 uppercase tracking-wider pb-2 border-b border-slate-200">
-                      Stake &amp; Auto Cashout
+                  <div className="bg-slate-900 p-5 rounded-2xl border border-slate-800 shadow-lg space-y-4">
+                    <div className="text-xs font-extrabold text-white uppercase tracking-wider pb-2 border-b border-slate-800">
+                      Wager Stake &amp; Auto Cashout
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
-                        <label className="text-xs text-slate-600 block mb-1.5 font-semibold">
+                        <label className="text-xs text-slate-300 block mb-1.5 font-bold">
                           Wager Stake ($)
                         </label>
-                        <div className="flex gap-2 mb-2">
+                        <div className="flex gap-2 mb-2 font-mono">
                           {[10, 25, 50, 100, 250].map((amt) => (
                             <button
                               key={amt}
                               onClick={() => setWagerAmount(amt)}
-                              className={`flex-1 py-1.5 text-xs rounded-lg border transition cursor-pointer font-bold ${
+                              className={`flex-1 py-1.5 text-xs rounded-xl border transition cursor-pointer font-bold ${
                                 wagerAmount === amt
-                                  ? 'bg-blue-700 text-white border-blue-700'
-                                  : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                                  ? 'bg-cyan-500 text-slate-950 border-cyan-400'
+                                  : 'bg-slate-950 border-slate-800 text-slate-300 hover:bg-slate-800'
                               }`}
                             >
                               ${amt}
@@ -304,28 +464,28 @@ export default function App() {
                           step="1"
                           value={wagerAmount}
                           onChange={(e) => setWagerAmount(Math.max(1, Number(e.target.value) || 1))}
-                          className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900 font-bold"
+                          className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white font-mono font-bold focus:border-cyan-400 outline-none"
                         />
                       </div>
 
                       <div>
                         <div className="flex items-center justify-between mb-1.5">
-                          <label className="text-xs text-slate-600 font-semibold">
-                            Auto Cashout (x)
+                          <label className="text-xs text-slate-300 font-bold">
+                            Auto Cashout Multiplier (x)
                           </label>
                           <button
                             onClick={() => setUseAutoCashout(!useAutoCashout)}
                             className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase cursor-pointer ${
                               useAutoCashout
-                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                                : 'bg-slate-100 text-slate-600'
+                                ? 'bg-emerald-950 text-emerald-400 border border-emerald-500/40'
+                                : 'bg-slate-800 text-slate-400'
                             }`}
                           >
                             {useAutoCashout ? 'ON' : 'OFF'}
                           </button>
                         </div>
 
-                        <div className="flex gap-2 mb-2">
+                        <div className="flex gap-2 mb-2 font-mono">
                           {['1.50', '2.00', '3.00', '5.00', '10.00'].map((mult) => (
                             <button
                               key={mult}
@@ -333,10 +493,10 @@ export default function App() {
                                 setAutoCashout(mult);
                                 setUseAutoCashout(true);
                               }}
-                              className={`flex-1 py-1.5 text-xs rounded-lg border transition cursor-pointer font-bold ${
+                              className={`flex-1 py-1.5 text-xs rounded-xl border transition cursor-pointer font-bold ${
                                 useAutoCashout && autoCashout === mult
-                                  ? 'bg-emerald-600 text-white border-emerald-600'
-                                  : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                                  ? 'bg-emerald-500 text-slate-950 border-emerald-400'
+                                  : 'bg-slate-950 border-slate-800 text-slate-300 hover:bg-slate-800'
                               }`}
                             >
                               {mult}x
@@ -351,7 +511,7 @@ export default function App() {
                           value={autoCashout}
                           onChange={(e) => setAutoCashout(e.target.value)}
                           disabled={!useAutoCashout}
-                          className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900 font-bold disabled:bg-slate-100"
+                          className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white font-mono font-bold disabled:bg-slate-900 focus:border-cyan-400 outline-none"
                         />
                       </div>
                     </div>
@@ -368,79 +528,158 @@ export default function App() {
                 balance={balance}
                 onDeductStake={handleDeductStake}
                 onApplyAccaToFlight={handleApplyAccaToFlight}
+                onAddWinnings={handleAddWinnings}
+                tickets={tickets}
+                onTicketsChange={handleTicketsChange}
               />
 
-              <div className="grid grid-cols-2 gap-3">
-                <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
-                  <div className="text-[10px] text-slate-500 uppercase font-semibold">SETTLED</div>
-                  <div className="text-xl font-bold text-blue-700 mt-1">{totalSettledCount}</div>
+              <div className="grid grid-cols-2 gap-3 font-mono">
+                <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 shadow-md">
+                  <div className="text-[10px] text-slate-400 uppercase font-semibold">ROUND SETTLED</div>
+                  <div className="text-xl font-black text-cyan-400 mt-1">{totalSettledCount}</div>
                 </div>
-                <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
-                  <div className="text-[10px] text-slate-500 uppercase font-semibold">TOP MULTIPLIER</div>
-                  <div className="text-xl font-bold text-emerald-700 mt-1">
+                <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 shadow-md">
+                  <div className="text-[10px] text-slate-400 uppercase font-semibold">TOP MULTIPLIER</div>
+                  <div className="text-xl font-black text-emerald-400 mt-1">
                     {highestMultiplier.toFixed(2)}x
                   </div>
-                </div>
-              </div>
-
-              <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
-                <div className="p-3.5 border-b border-slate-200 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <ShieldCheck className="w-4 h-4 text-emerald-700" />
-                    <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                      Settlement Ledger
-                    </span>
-                  </div>
-                  <button
-                    onClick={fetchLedger}
-                    className="text-slate-600 hover:text-blue-700 p-1 rounded transition cursor-pointer"
-                    title="Refresh Ledger"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${isLoadingLedger ? 'animate-spin' : ''}`} />
-                  </button>
-                </div>
-
-                <div className="p-2 text-[10px] bg-slate-50 border-b border-slate-200 text-slate-500 flex justify-between px-3">
-                  <span>Source: {ledgerSource}</span>
-                  <span className="text-emerald-700 font-semibold">Active</span>
-                </div>
-
-                <div className="divide-y divide-slate-100 max-h-[360px] overflow-y-auto">
-                  {settlements.length === 0 ? (
-                    <div className="p-8 text-center text-xs text-slate-500">
-                      No settlements recorded yet.
-                    </div>
-                  ) : (
-                    settlements.map((item, idx) => (
-                      <div key={item.id || item.session_id || idx} className="p-3 hover:bg-slate-50">
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-[10px] font-mono text-slate-600">
-                            {item.session_id || String(item.id || '').slice(0, 14)}
-                          </span>
-                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800">
-                            {item.status || 'SETTLED'}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-slate-600">
-                            ${Number(item.wager_amount || 0).toFixed(2)} @{' '}
-                            <strong className="text-slate-900">
-                              {Number(item.multiplier || 1).toFixed(2)}x
-                            </strong>
-                          </span>
-                          <span className="font-bold text-emerald-700">
-                            +${Number(item.payout_amount || 0).toFixed(2)}
-                          </span>
-                        </div>
-                      </div>
-                    ))
-                  )}
                 </div>
               </div>
             </div>
           </div>
         )}
 
+        {/* TAB 3: MY TICKETS (PERSISTENT TICKETS LIST) */}
+        {activeTab === 'tickets' && (
+          <div className="space-y-4">
+            <div className="p-6 rounded-2xl bg-slate-900 border border-slate-800 shadow-xl flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-black text-white uppercase tracking-wider flex items-center gap-2">
+                  <Receipt className="w-5 h-5 text-emerald-400" />
+                  My Persistent Sports Tickets ({tickets.length})
+                </h2>
+                <p className="text-xs text-slate-400 mt-1">
+                  All placed accumulator and single tickets remain saved to your ledger history. Click evaluate to check winning outcomes!
+                </p>
+              </div>
+
+              <div className="flex gap-2 font-mono text-xs">
+                <span className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-300">
+                  Total Placed: <strong className="text-white">{tickets.length}</strong>
+                </span>
+                <span className="px-3 py-1.5 rounded-xl bg-emerald-950 border border-emerald-500/30 text-emerald-300">
+                  Open Tickets: <strong className="text-emerald-400">{openTicketsCount}</strong>
+                </span>
+              </div>
+            </div>
+
+            {tickets.length === 0 ? (
+              <div className="p-12 text-center text-slate-500 bg-slate-900 border border-dashed border-slate-800 rounded-2xl space-y-2">
+                <Receipt className="w-10 h-10 text-slate-600 mx-auto" />
+                <div className="text-sm font-bold text-slate-400">No sports tickets placed yet.</div>
+                <div className="text-xs text-slate-500 max-w-md mx-auto">
+                  Browse the Top 10 Sportsbook, pick your match outcomes, and place an accumulator bet. Your tickets will persist here.
+                </div>
+                <button
+                  onClick={() => setActiveTab('sportsbook')}
+                  className="mt-3 px-4 py-2 rounded-xl bg-cyan-500 text-slate-950 font-black text-xs uppercase cursor-pointer"
+                >
+                  Explore Top 10 Games
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {tickets.map((t) => (
+                  <div
+                    key={t.id}
+                    className={`p-5 rounded-2xl border transition shadow-lg space-y-3 ${
+                      t.status === 'WON'
+                        ? 'bg-emerald-950/30 border-emerald-500/40'
+                        : 'bg-slate-900 border-slate-800'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-cyan-400 font-extrabold text-sm">{t.id}</span>
+                        <span className="text-[11px] text-slate-400 font-semibold">{t.type}</span>
+                      </div>
+                      <span
+                        className={`px-2.5 py-0.5 rounded-full text-[10px] font-black ${
+                          t.status === 'WON'
+                            ? 'bg-emerald-500 text-slate-950'
+                            : t.status === 'OPEN'
+                              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                              : 'bg-slate-800 text-slate-300'
+                        }`}
+                      >
+                        {t.status}
+                      </span>
+                    </div>
+
+                    <div className="text-[11px] text-slate-400">
+                      Placed: {t.date} {t.timestamp}
+                    </div>
+
+                    {/* Legs details */}
+                    <div className="space-y-1.5 bg-slate-950 p-3 rounded-xl border border-slate-800/80">
+                      {t.picks.map((p, idx) => (
+                        <div key={idx} className="flex items-center justify-between text-xs text-slate-300">
+                          <span className="truncate flex-1 mr-2">
+                            • {p.match || `${p.home} vs ${p.away}`}:{' '}
+                            <strong className="text-white">{p.selectionName || p.selection}</strong>
+                          </span>
+                          <span className="font-mono text-cyan-300 font-bold shrink-0">
+                            {parseFloat(p.price || p.odds || 1).toFixed(2)}x
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-800 font-mono">
+                      <div>
+                        <span className="text-slate-400">Stake: </span>
+                        <span className="font-bold text-white">${t.stake}</span>
+                        <span className="text-slate-400 ml-3">Odds: </span>
+                        <span className="font-bold text-cyan-300">{t.odds}x</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-slate-400 text-[10px] block leading-tight">
+                          Potential Win:
+                        </span>
+                        <span className="font-black text-emerald-400 text-base">
+                          ${t.potentialPayout} USD
+                        </span>
+                      </div>
+                    </div>
+
+                    {t.status === 'OPEN' && (
+                      <div className="pt-2 border-t border-slate-800/80">
+                        <button
+                          onClick={() => {
+                            const updated = tickets.map((item) => {
+                              if (item.id === t.id) {
+                                handleAddWinnings(parseFloat(item.potentialPayout));
+                                return { ...item, status: 'WON' };
+                              }
+                              return item;
+                            });
+                            handleTicketsChange(updated);
+                          }}
+                          className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs transition cursor-pointer flex items-center justify-center gap-1.5 shadow-md shadow-emerald-600/20"
+                        >
+                          <Zap className="w-3.5 h-3.5" />
+                          Simulate Outcome: Settle as Won (+${t.potentialPayout})
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB 4: TOP 5 EUROPEAN LEAGUES (2026/2027) */}
         {activeTab === 'football' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             <div className="lg:col-span-8">
@@ -454,15 +693,24 @@ export default function App() {
                 balance={balance}
                 onDeductStake={handleDeductStake}
                 onApplyAccaToFlight={handleApplyAccaToFlight}
+                onAddWinnings={handleAddWinnings}
+                tickets={tickets}
+                onTicketsChange={handleTicketsChange}
               />
             </div>
           </div>
         )}
 
+        {/* TAB 5: LIVE ODDS TELEMETRY */}
         {activeTab === 'odds' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             <div className="lg:col-span-8">
-              <LiveOddsPortal userId={userId} onAccumulatorOddsChange={setBoostMultiplier} />
+              <LiveOddsPortal
+                userId={userId}
+                onAccumulatorOddsChange={setBoostMultiplier}
+                onTogglePick={handleTogglePick}
+                picks={betPicks}
+              />
             </div>
             <div className="lg:col-span-4 space-y-6">
               <BetSlip
@@ -472,21 +720,25 @@ export default function App() {
                 balance={balance}
                 onDeductStake={handleDeductStake}
                 onApplyAccaToFlight={handleApplyAccaToFlight}
+                onAddWinnings={handleAddWinnings}
+                tickets={tickets}
+                onTicketsChange={handleTicketsChange}
               />
             </div>
           </div>
         )}
 
+        {/* TAB 6: POSTGRESQL & DRIZZLE SCHEMA */}
         {activeTab === 'schema' && (
-          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-xs space-y-4">
-            <div className="flex items-center gap-2 pb-3 border-b border-slate-200">
-              <Database className="w-5 h-5 text-blue-700" />
-              <h2 className="text-base font-bold text-slate-900">
-                PostgreSQL &amp; Drizzle Ledger Schema
+          <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800 shadow-xl space-y-4">
+            <div className="flex items-center gap-2 pb-3 border-b border-slate-800">
+              <Database className="w-5 h-5 text-cyan-400" />
+              <h2 className="text-base font-extrabold text-white">
+                PostgreSQL &amp; Drizzle Ledger Schema (Netlify Database)
               </h2>
             </div>
 
-            <pre className="p-4 bg-slate-900 text-slate-100 rounded-lg text-xs font-mono overflow-x-auto leading-relaxed">
+            <pre className="p-4 bg-slate-950 text-cyan-300 rounded-xl text-xs font-mono overflow-x-auto leading-relaxed border border-slate-800">
 {`CREATE TABLE IF NOT EXISTS bet_settlements (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     session_id VARCHAR(64) UNIQUE NOT NULL,
@@ -498,13 +750,24 @@ export default function App() {
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS withdrawal_requests (
+    id BIGSERIAL PRIMARY KEY,
+    user_id VARCHAR(64) NOT NULL,
+    amount NUMERIC(14, 4) NOT NULL,
+    rail VARCHAR(32) NOT NULL,
+    user_wallet TEXT NOT NULL,
+    settlement_wallet TEXT NOT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'PENDING_MANUAL_APPROVAL',
+    tx_ref TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS financial_ledger (
     id BIGSERIAL PRIMARY KEY,
     user_id VARCHAR(64) NOT NULL,
     entry_type VARCHAR(32) NOT NULL,
     amount NUMERIC(14, 4) NOT NULL,
     hot_wallet_address TEXT,
-    gas_fee_paid NUMERIC(14, 8) DEFAULT 0,
     tx_hash TEXT NOT NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'CONFIRMED',
     metadata JSONB DEFAULT '{}'::jsonb,
@@ -515,22 +778,28 @@ CREATE TABLE IF NOT EXISTS financial_ledger (
         )}
       </main>
 
+      {/* Crypto Cashier & User Profile Modal */}
       <UserProfileModal
         isOpen={isProfileOpen}
         onClose={() => setIsProfileOpen(false)}
         userId={userId}
-        onUserChange={(newId) => setUserId(newId)}
+        onUserChange={handleUserChange}
         balance={balance}
-        onBalanceChange={(newBal) => setBalance(newBal)}
+        onBalanceChange={updateBalance}
+        initialTab={profileModalTab}
       />
 
-      <footer className="border-t border-slate-200 py-5 mt-12 bg-white">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 flex flex-wrap items-center justify-between gap-4 text-xs text-slate-600">
-          <div>
-            Monthly $100 disbursement applies on the scheduled monthly cycle — wait for monthly $100 disbursement.
+      {/* Footer */}
+      <footer className="border-t border-slate-800 py-6 mt-12 bg-slate-900/60 text-xs text-slate-400">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4 text-emerald-400" />
+            <span>
+              Autonomous Provably Fair Sportsbook &amp; Netlify Serverless Crypto Settlement
+            </span>
           </div>
-          <div className="font-mono text-slate-700">
-            Wallet: {SETTLEMENT_WALLET}
+          <div className="font-mono text-slate-400">
+            Global Odds Settlement Wallet: <span className="text-cyan-400">{SETTLEMENT_WALLET}</span>
           </div>
         </div>
       </footer>
