@@ -1,14 +1,12 @@
-const DEFAULT_SETTLEMENT_WALLET = '4AB1u2f16V1Vno2fzN4GTN41MTSWjW4E3ViN4bg3qA4m';
-
 export async function pingEdge() {
   const start = performance.now();
   const res = await fetch('/.netlify/functions/system?command=ping');
   const elapsed = Math.round(performance.now() - start);
-  const data = await res.json();
+  const data = await res.json().catch(() => ({}));
   return {
     ok: res.ok && Boolean(data.ok ?? data.success),
     latencyMs: data.latencyMs ?? elapsed,
-    settlementWallet: data.settlementWallet || DEFAULT_SETTLEMENT_WALLET,
+    settlementWallet: data.settlementWallet || '',
     timestamp: data.timestamp || new Date().toISOString(),
   };
 }
@@ -19,15 +17,15 @@ export async function verifyDeployment() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ command: 'deploy' }),
   });
-  return res.json();
+  return res.json().catch(() => ({ ok: false, error: 'INVALID_JSON_RESPONSE' }));
 }
 
 export async function fetchStatus() {
   const res = await fetch('/.netlify/functions/system?command=status');
-  return res.json();
+  return res.json().catch(() => ({ ok: false, error: 'INVALID_JSON_RESPONSE' }));
 }
 
-export async function runAutomatedRound({ userId, wagerAmount, targetOdds = 2.0 }) {
+export async function runAutomatedRound({ userId, wagerAmount, targetOdds }) {
   const res = await fetch('/.netlify/functions/round', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -37,7 +35,7 @@ export async function runAutomatedRound({ userId, wagerAmount, targetOdds = 2.0 
       targetOdds: Number(targetOdds),
     }),
   });
-  return res.json();
+  return res.json().catch(() => ({ ok: false, error: 'INVALID_JSON_RESPONSE' }));
 }
 
 export async function settleWagerAutomated({
@@ -47,7 +45,6 @@ export async function settleWagerAutomated({
   multiplier,
   rail = 'HOT_WALLET',
   onBalanceUpdate,
-  currentBalance,
 }) {
   const stake = Number(wagerAmount);
   const mult = Number(multiplier);
@@ -62,14 +59,20 @@ export async function settleWagerAutomated({
       rail,
     }),
   });
-  const data = await res.json();
+  const data = await res.json().catch(() => ({ ok: false, error: 'INVALID_JSON_RESPONSE' }));
 
-  if (res.ok && (data.ok || data.success)) {
-    const payout = Number(data.payoutAmount ?? stake * mult);
-    if (typeof onBalanceUpdate === 'function' && typeof currentBalance === 'number') {
-      const nextBal = Number(Math.max(0, currentBalance + (payout - stake)).toFixed(2));
-      onBalanceUpdate(nextBal);
-    }
+  // Prefer authoritative server balance if provided; avoid guessing client-side math
+  const authoritativeBalance =
+    data.availableBalance ?? data.balance ?? data.updatedBalance;
+  if (
+    res.ok &&
+    (data.ok || data.success) &&
+    typeof onBalanceUpdate === 'function' &&
+    authoritativeBalance !== undefined &&
+    authoritativeBalance !== null &&
+    Number.isFinite(Number(authoritativeBalance))
+  ) {
+    onBalanceUpdate(Number(authoritativeBalance));
   }
 
   return data;
@@ -78,10 +81,10 @@ export async function settleWagerAutomated({
 export async function requestAutomatedWithdrawal({
   userId,
   amount,
-  rail = 'SOLANA',
+  rail,
   userWallet,
+  settlementWallet,
   onBalanceUpdate,
-  currentBalance,
 }) {
   const amt = Number(amount);
   const res = await fetch('/.netlify/functions/withdraw', {
@@ -92,23 +95,37 @@ export async function requestAutomatedWithdrawal({
       amount: amt,
       rail,
       userWallet,
-      settlementWallet: DEFAULT_SETTLEMENT_WALLET,
+      ...(settlementWallet ? { settlementWallet } : {}),
     }),
   });
-  const data = await res.json();
+  const data = await res.json().catch(() => ({ ok: false, error: 'INVALID_JSON_RESPONSE' }));
 
-  if (res.ok && (data.ok || data.success)) {
-    if (typeof onBalanceUpdate === 'function' && typeof currentBalance === 'number') {
-      const nextBal = Number(Math.max(0, currentBalance - amt).toFixed(2));
-      onBalanceUpdate(nextBal);
-    }
+  const authoritativeBalance =
+    data.availableBalance ?? data.balance ?? data.updatedBalance;
+  if (
+    res.ok &&
+    (data.ok || data.success) &&
+    typeof onBalanceUpdate === 'function' &&
+    authoritativeBalance !== undefined &&
+    authoritativeBalance !== null &&
+    Number.isFinite(Number(authoritativeBalance))
+  ) {
+    onBalanceUpdate(Number(authoritativeBalance));
   }
 
   return data;
 }
 
-export async function fetchSettlementLedger(userId) {
+export async function fetchSettlementLedger(userId = '') {
   const query = userId ? `?userId=${encodeURIComponent(userId)}` : '';
   const res = await fetch(`/.netlify/functions/settle${query}`);
-  return res.json();
+  if (!res.ok) {
+    return { ok: false, settlements: [], error: `LEDGER_FETCH_FAILED_${res.status}` };
+  }
+  const data = await res.json().catch(() => ({}));
+  return {
+    ok: true,
+    settlements: Array.isArray(data.settlements) ? data.settlements : [],
+    source: data.source || 'POSTGRES_LEDGER',
+  };
 }
