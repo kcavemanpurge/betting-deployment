@@ -1,23 +1,25 @@
 :root {
-  --bg-page: #f8fafc;
-  --bg-surface: #ffffff;
-  --bg-subtle: #f1f5f9;
-  --border-soft: #e2e8f0;
-  --text-primary: #0f172a;
-  --text-secondary: #475569;
+  --bg-page: #070b08;
+  --bg-surface: #0d1510;
+  --bg-subtle: #132018;
+  --border-soft: #1f3527;
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
 
-  /* Primary & Secondary Betting Palette */
-  --primary: #1d4ed8;
-  --primary-hover: #1e40af;
-  --primary-soft: #eff6ff;
+  /* Sovereign Vault & Betting Palette */
+  --primary: #10b981;
+  --primary-hover: #059669;
+  --primary-soft: rgba(16, 185, 129, 0.12);
+  --primary-border: rgba(16, 185, 129, 0.35);
 
-  --secondary: #059669;
-  --secondary-hover: #047857;
-  --secondary-soft: #ecfdf5;
+  --secondary: #34d399;
+  --secondary-hover: #10b981;
+  --secondary-soft: rgba(52, 211, 153, 0.12);
 
-  --accent-amber: #d97706;
-  --accent-amber-soft: #fffbeb;
-  --danger: #dc2626;
+  --accent-amber: #f59e0b;
+  --accent-amber-soft: rgba(245, 158, 11, 0.14);
+  --danger: #ef4444;
+  --on-primary: #04120b;
 }
 
 body {
@@ -36,20 +38,20 @@ h1, h2, h3, .font-heading {
   background: var(--bg-surface);
   border: 1px solid var(--border-soft);
   border-radius: 12px;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
 }
 
 .odd-pill {
   background: var(--primary-soft);
-  color: var(--primary);
-  border: 1px solid #bfdbfe;
+  color: var(--secondary);
+  border: 1px solid var(--primary-border);
   border-radius: 8px;
   font-weight: 700;
-  transition: background-color 0.15s ease, border-color 0.15s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
 .odd-pill:hover:not(:disabled) {
   background: var(--primary);
   border-color: var(--primary);
-  color: #ffffff;
+  color: var(--on-primary);
 }
