@@ -40,6 +40,15 @@ function buildKycHash(kycId) {
   return crypto.createHash('sha256').update(kycId.trim().toUpperCase()).digest('hex');
 }
 
+function sanitizeProfile(row) {
+  if (!row) return null;
+  const { kyc_hash: _omittedKycHash, ...safeProfile } = row;
+  return {
+    ...safeProfile,
+    kycVerified: Boolean(row.kyc_hash),
+  };
+}
+
 export async function handler(event) {
   const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -60,7 +69,8 @@ export async function handler(event) {
 
   if (event.httpMethod === 'GET') {
     const email = (event.queryStringParameters?.email || '').trim().toLowerCase();
-    const userId = (event.queryStringParameters?.userId || '').trim() || (email ? buildUserId(email) : '');
+    const userId =
+      (event.queryStringParameters?.userId || '').trim() || (email ? buildUserId(email) : '');
 
     if (!userId) {
       return {
@@ -83,7 +93,7 @@ export async function handler(event) {
         [userId]
       );
 
-      const profile = profileRes.rows[0] || null;
+      const profile = sanitizeProfile(profileRes.rows[0] || null);
       const bal = balRes.rows[0] || {
         promo_balance: '0',
         profit_balance: '0',
@@ -102,6 +112,16 @@ export async function handler(event) {
           profitBalance: Number(bal.profit_balance),
           dailySpendUsed: Number(bal.daily_spend_used),
           settlementWallet,
+        }),
+      };
+    } catch (err) {
+      return {
+        statusCode: 500,
+        headers: corsHeaders,
+        body: JSON.stringify({
+          ok: false,
+          error: 'ACCOUNT_LOOKUP_FAILED',
+          detail: err instanceof Error ? err.message : 'UNKNOWN_ERROR',
         }),
       };
     } finally {
@@ -176,7 +196,7 @@ export async function handler(event) {
             JSON.stringify({ settlementWallet, lockedAt: new Date().toISOString() }),
           ]
         );
-        resolvedProfile = insertRes.rows[0];
+        resolvedProfile = sanitizeProfile(insertRes.rows[0]);
 
         await client.query(
           `INSERT INTO user_balances (user_id, promo_balance, profit_balance, daily_spend_used, spend_date)
@@ -187,7 +207,7 @@ export async function handler(event) {
       } else {
         const current = existingRes.rows[0];
         if (current.kyc_locked) {
-          if (fullName && fullName !== current.full_name) {
+          if (fullName && fullName.toLowerCase() !== current.full_name.trim().toLowerCase()) {
             await client.query('ROLLBACK');
             return {
               statusCode: 409,
@@ -218,7 +238,7 @@ export async function handler(event) {
             JSON.stringify({ lastSyncedAt: new Date().toISOString(), settlementWallet }),
           ]
         );
-        resolvedProfile = updateRes.rows[0];
+        resolvedProfile = sanitizeProfile(updateRes.rows[0]);
       }
 
       const balRes = await client.query(
