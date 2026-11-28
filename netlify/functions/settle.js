@@ -1,7 +1,7 @@
 import { Pool } from '@neondatabase/serverless';
 import { getDatabase } from '@netlify/database';
 
-const DEFAULT_SETTLEMENT_WALLET = '4AB1u2f16V1Vno2fzN4GTN41MTSWjW4E3ViN4bg3qA4m';[span_4](start_span)[span_4](end_span)
+const DEFAULT_SETTLEMENT_WALLET = '4AB1u2f16V1Vno2fzN4GTN41MTSWjW4E3ViN4bg3qA4m';
 
 let pool;
 
@@ -51,7 +51,7 @@ export async function handler(event) {
     process.env.NETLIFY_ODDS_WALLET_ADDRESS ||
     process.env.HOT_WALLET_ADDRESS ||
     DEFAULT_SETTLEMENT_WALLET
-  ).trim();[span_5](start_span)[span_5](end_span)
+  ).trim();
 
   if (event.httpMethod === 'GET') {
     const targetUserId = event.queryStringParameters?.userId?.trim();
@@ -112,6 +112,10 @@ export async function handler(event) {
     const userId = typeof payload.userId === 'string' ? payload.userId.trim() : '';
     const numWager = Number(payload.wagerAmount);
     const numMultiplier = Number(payload.multiplier);
+    const triggerType =
+      typeof payload.triggerType === 'string' && payload.triggerType.trim()
+        ? payload.triggerType.trim()
+        : 'SETTLEMENT';
     const rail = typeof payload.rail === 'string' ? payload.rail.trim().toUpperCase() : 'HOT_WALLET';
     const txRef =
       typeof payload.txHash === 'string' && payload.txHash.trim()
@@ -126,7 +130,12 @@ export async function handler(event) {
       };
     }
 
-    if (!Number.isFinite(numWager) || numWager <= 0 || !Number.isFinite(numMultiplier) || numMultiplier < 1.0) {
+    if (
+      !Number.isFinite(numWager) ||
+      numWager <= 0 ||
+      !Number.isFinite(numMultiplier) ||
+      numMultiplier < 1.0
+    ) {
       return {
         statusCode: 400,
         headers: corsHeaders,
@@ -154,15 +163,30 @@ export async function handler(event) {
         };
       }
 
+      const computedPayout = Number((numWager * numMultiplier).toFixed(4));
+
       const insertRes = await client.query(
         `INSERT INTO bet_settlements (session_id, user_id, wager_amount, multiplier, status)
          VALUES ($1, $2, $3, $4, 'SETTLED')
+         ON CONFLICT (session_id) DO NOTHING
          RETURNING id, payout_amount, created_at`,
         [sessionId, userId, numWager.toFixed(2), numMultiplier.toFixed(4)]
       );
 
+      if (insertRes.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return {
+          statusCode: 409,
+          headers: corsHeaders,
+          body: JSON.stringify({ ok: false, error: 'SESSION_ALREADY_SETTLED' }),
+        };
+      }
+
       const record = insertRes.rows[0];
-      const payoutNum = Number(record.payout_amount);
+      const payoutNum =
+        record.payout_amount !== null && record.payout_amount !== undefined
+          ? Number(record.payout_amount)
+          : computedPayout;
 
       await client.query(
         `INSERT INTO user_balances (user_id, promo_balance, profit_balance, updated_at)
@@ -187,6 +211,7 @@ export async function handler(event) {
             sessionId,
             wagerAmount: numWager,
             multiplier: numMultiplier,
+            triggerType,
             rail,
             settlementWallet,
           }),
