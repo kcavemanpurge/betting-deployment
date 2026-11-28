@@ -1,86 +1,112 @@
 import React, { useState } from 'react';
-import { 
-  Receipt, 
-  Trash2, 
-  Zap, 
-  CheckCircle2, 
-  AlertCircle, 
-  ChevronUp, 
-  ChevronDown, 
+import {
+  Receipt,
+  Trash2,
+  ChevronUp,
+  ChevronDown,
   Plane,
   X,
-  Plus
+  RefreshCw,
 } from 'lucide-react';
 
 export function BetSlip({
   picks = [],
   onRemovePick,
   onClearPicks,
-  balance,
+  balance = 0,
   onDeductStake,
   onApplyAccaToFlight,
-  onBetPlaced
+  onBetPlaced,
+  onRefreshLedger,
 }) {
-  const [stake, setStake] = useState(25.00);
+  const [stakeInput, setStakeInput] = useState('25.00');
   const [isExpanded, setIsExpanded] = useState(true);
   const [activeBets, setActiveBets] = useState([]);
   const [statusMsg, setStatusMsg] = useState('');
+  const [isPlacing, setIsPlacing] = useState(false);
 
-  // Calculate Accumulator Multiplier
-  const totalOdds = picks.length > 0 
-    ? parseFloat(picks.reduce((acc, curr) => acc * parseFloat(curr.price || 1), 1).toFixed(2))
-    : 1.00;
+  const numericStake = Number(stakeInput);
+  const validStake = Number.isFinite(numericStake) && numericStake > 0 ? numericStake : 0;
 
-  const potentialPayout = parseFloat((stake * totalOdds).toFixed(2));
+  const totalOdds =
+    picks.length > 0
+      ? Number(
+          picks
+            .reduce((acc, curr) => acc * (Number(curr.price) || 1), 1)
+            .toFixed(2)
+        )
+      : 1.0;
 
-  // Place Bet
-  const handlePlaceBet = () => {
+  const potentialPayout = Number((validStake * totalOdds).toFixed(2));
+
+  const handlePlaceBet = async () => {
     if (picks.length === 0) {
       setStatusMsg('ERROR: Select at least one match outcome to arm the bet slip.');
       return;
     }
-    if (stake <= 0) {
-      setStatusMsg('ERROR: Enter a valid wager stake.');
+    if (validStake <= 0) {
+      setStatusMsg('ERROR: Enter a valid positive wager stake.');
       return;
     }
-    if (stake > balance) {
-      setStatusMsg('ERROR: Insufficient ledger balance. Please deposit or renew funds in profile.');
+    if (validStake > Number(balance)) {
+      setStatusMsg('ERROR: Insufficient available balance.');
       return;
     }
 
-    const slipId = `ACCA_${Date.now().toString(36).toUpperCase()}_${Math.random().toString(36).substring(2, 5).toUpperCase()}`;
+    setIsPlacing(true);
+    setStatusMsg('');
+
+    const slipId = `ACCA_${Date.now().toString(36).toUpperCase()}_${Math.random()
+      .toString(36)
+      .substring(2, 6)
+      .toUpperCase()}`;
+
     const newBet = {
       id: slipId,
       timestamp: new Date().toLocaleTimeString(),
       picks: [...picks],
-      stake: stake.toFixed(2),
+      stake: validStake.toFixed(2),
       odds: totalOdds.toFixed(2),
       potentialPayout: potentialPayout.toFixed(2),
-      status: 'PENDING (AUTO-EVALUATING)'
+      status: 'COMMITTED_LOCAL_STAGE',
     };
 
-    onDeductStake(stake);
-    setActiveBets((prev) => [newBet, ...prev.slice(0, 4)]);
-    setStatusMsg(`SUCCESS: Accumulator [${slipId}] placed! Total Odds: ${totalOdds.toFixed(2)}x (Potential: $${potentialPayout.toFixed(2)})`);
+    try {
+      if (typeof onDeductStake === 'function') {
+        await onDeductStake(validStake, { slipId, picks, totalOdds, potentialPayout });
+      }
+      if (typeof onRefreshLedger === 'function') {
+        await onRefreshLedger();
+      }
 
-    if (onBetPlaced) {
-      onBetPlaced(newBet);
+      setActiveBets((prev) => [newBet, ...prev.slice(0, 4)]);
+      setStatusMsg(
+        `ARMED [${slipId}]: ${picks.length} leg(s) @ ${totalOdds.toFixed(2)}x • Est. Payout: $${potentialPayout.toFixed(2)}`
+      );
+
+      if (typeof onBetPlaced === 'function') {
+        onBetPlaced(newBet);
+      }
+      if (typeof onClearPicks === 'function') {
+        onClearPicks();
+      }
+    } catch (err) {
+      setStatusMsg(`ERROR: ${err?.message || 'Unable to commit wager stake.'}`);
+    } finally {
+      setIsPlacing(false);
     }
-    onClearPicks();
   };
 
-  // Sync Accumulator to Aviator Flight Project
   const handleSyncToFlight = () => {
-    if (totalOdds > 1.0 && onApplyAccaToFlight) {
+    if (totalOdds > 1.0 && typeof onApplyAccaToFlight === 'function') {
       onApplyAccaToFlight(totalOdds);
-      setStatusMsg(`ACCUMULATOR BOOST: Target flight multiplier set to ${totalOdds.toFixed(2)}x in Aviator Engine!`);
+      setStatusMsg(`FLIGHT BOOST: Target multiplier set to ${totalOdds.toFixed(2)}x.`);
     }
   };
 
   return (
     <div className="bg-slate-950 border border-cyan-500/40 rounded-xl overflow-hidden shadow-2xl font-mono text-xs">
-      {/* Bet Slip Header */}
-      <div 
+      <div
         onClick={() => setIsExpanded(!isExpanded)}
         className="p-3.5 bg-slate-900 border-b border-slate-800 flex items-center justify-between cursor-pointer select-none"
       >
@@ -88,34 +114,35 @@ export function BetSlip({
           <div className="w-6 h-6 rounded bg-cyan-950 border border-cyan-500/40 flex items-center justify-center text-cyan-400">
             <Receipt className="w-3.5 h-3.5" />
           </div>
-          <div>
-            <div className="font-extrabold text-white tracking-wider flex items-center gap-1.5">
-              FOOTBALL BET SLIP & ACCUMULATOR
-              <span className="px-1.5 py-0.2 rounded bg-cyan-950 text-cyan-300 border border-cyan-500/30 text-[10px]">
-                {picks.length} {picks.length === 1 ? 'LEG' : 'LEGS'}
-              </span>
-            </div>
+          <div className="font-extrabold text-white tracking-wider flex items-center gap-1.5">
+            BET SLIP &amp; ACCUMULATOR
+            <span className="px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-500/30 text-[10px]">
+              {picks.length} {picks.length === 1 ? 'LEG' : 'LEGS'}
+            </span>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
           {picks.length > 0 && (
             <span className="text-emerald-400 font-extrabold text-xs">
-              TOTAL: {totalOdds.toFixed(2)}x
+              {totalOdds.toFixed(2)}x
             </span>
           )}
-          {isExpanded ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronUp className="w-4 h-4 text-slate-400" />}
+          {isExpanded ? (
+            <ChevronDown className="w-4 h-4 text-slate-400" />
+          ) : (
+            <ChevronUp className="w-4 h-4 text-slate-400" />
+          )}
         </div>
       </div>
 
       {isExpanded && (
         <div className="p-4 space-y-4">
-          {/* Picks List */}
           {picks.length === 0 ? (
             <div className="p-6 text-center text-slate-500 border border-dashed border-slate-800 rounded-lg space-y-1">
               <div>Your accumulator slip is empty.</div>
               <div className="text-[10px] text-slate-600">
-                Touch or click any team or 1 / X / 2 match outcome in EPL, La Liga, Serie A, Bundesliga, or Ligue 1 to add.
+                Select any match outcome or club across the Top 5 leagues to add a leg.
               </div>
             </div>
           ) : (
@@ -123,6 +150,7 @@ export function BetSlip({
               <div className="flex justify-between items-center pb-1 text-[11px] text-slate-400">
                 <span>SELECTIONS ({picks.length})</span>
                 <button
+                  type="button"
                   onClick={onClearPicks}
                   className="text-rose-400 hover:text-rose-300 flex items-center gap-1 text-[10px] transition cursor-pointer"
                 >
@@ -131,7 +159,7 @@ export function BetSlip({
               </div>
 
               {picks.map((pick) => (
-                <div 
+                <div
                   key={pick.id || `${pick.match}_${pick.selection}`}
                   className="p-2.5 rounded-lg bg-slate-900/90 border border-slate-800 flex items-center justify-between gap-2"
                 >
@@ -151,10 +179,11 @@ export function BetSlip({
 
                   <div className="flex items-center gap-2">
                     <span className="font-extrabold text-cyan-300 text-xs">
-                      {parseFloat(pick.price || 1).toFixed(2)}x
+                      {Number(pick.price || 1).toFixed(2)}x
                     </span>
                     <button
-                      onClick={() => onRemovePick(pick.id)}
+                      type="button"
+                      onClick={() => onRemovePick && onRemovePick(pick.id)}
                       className="p-1 text-slate-500 hover:text-rose-400 transition cursor-pointer"
                     >
                       <X className="w-3.5 h-3.5" />
@@ -165,17 +194,15 @@ export function BetSlip({
             </div>
           )}
 
-          {/* Staking & Accumulator Summary */}
           {picks.length > 0 && (
             <div className="space-y-3 pt-2 border-t border-slate-800">
               <div className="flex items-center justify-between text-xs">
-                <span className="text-slate-400 font-bold">COMBINED ACCUMULATOR ODDS:</span>
+                <span className="text-slate-400 font-bold">COMBINED ODDS:</span>
                 <span className="text-sm font-extrabold text-cyan-300">
                   {totalOdds.toFixed(2)}x
                 </span>
               </div>
 
-              {/* Stake input */}
               <div>
                 <div className="flex justify-between items-center mb-1">
                   <label className="text-[11px] text-slate-400 font-bold">WAGER STAKE (USD)</label>
@@ -183,9 +210,12 @@ export function BetSlip({
                     {[10, 25, 50, 100].map((amt) => (
                       <button
                         key={amt}
-                        onClick={() => setStake(amt)}
+                        type="button"
+                        onClick={() => setStakeInput(amt.toFixed(2))}
                         className={`px-2 py-0.5 text-[10px] rounded font-bold cursor-pointer ${
-                          stake === amt ? 'bg-cyan-500 text-black' : 'bg-slate-900 text-slate-400 hover:text-white'
+                          validStake === amt
+                            ? 'bg-cyan-500 text-black'
+                            : 'bg-slate-900 text-slate-400 hover:text-white'
                         }`}
                       >
                         ${amt}
@@ -197,56 +227,66 @@ export function BetSlip({
                   <span className="absolute left-2.5 top-2 text-slate-500">$</span>
                   <input
                     type="number"
-                    min="1"
-                    step="5"
-                    value={stake}
-                    onChange={(e) => setStake(Math.max(1, parseFloat(e.target.value) || 1))}
+                    min="0.01"
+                    step="1"
+                    value={stakeInput}
+                    onChange={(e) => setStakeInput(e.target.value)}
                     className="w-full bg-slate-900 border border-slate-800 rounded px-6 py-2 text-xs font-bold text-white focus:border-cyan-400 outline-none"
                   />
                 </div>
               </div>
 
-              {/* Payout calculation */}
               <div className="p-2.5 rounded bg-emerald-950/40 border border-emerald-500/30 flex items-center justify-between">
-                <span className="text-[11px] text-slate-300 font-bold">ESTIMATED POTENTIAL PAYOUT:</span>
+                <span className="text-[11px] text-slate-300 font-bold">POTENTIAL PAYOUT:</span>
                 <span className="text-sm font-black text-emerald-400">
                   ${potentialPayout.toFixed(2)} USD
                 </span>
               </div>
 
-              {/* Actions: Place Bet & Sync to Aviator */}
               <div className="space-y-2 pt-1">
                 <button
+                  type="button"
+                  disabled={isPlacing}
                   onClick={handlePlaceBet}
-                  className="w-full py-3 bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold text-xs uppercase rounded transition cursor-pointer flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-500/20 active:scale-[0.99]"
+                  className="w-full py-3 bg-emerald-500 hover:bg-emerald-400 disabled:bg-slate-800 disabled:text-slate-500 text-black font-extrabold text-xs uppercase rounded transition cursor-pointer flex items-center justify-center gap-1.5"
                 >
-                  <Receipt className="w-4 h-4" />
-                  PLACE ACCUMULATOR BET (${stake.toFixed(2)} @ {totalOdds.toFixed(2)}x)
+                  {isPlacing ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      COMMITTING WAGER...
+                    </>
+                  ) : (
+                    <>
+                      <Receipt className="w-4 h-4" />
+                      PLACE ACCUMULATOR (${validStake.toFixed(2)} @ {totalOdds.toFixed(2)}x)
+                    </>
+                  )}
                 </button>
 
                 <button
+                  type="button"
                   onClick={handleSyncToFlight}
                   className="w-full py-2 bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-cyan-500/30 font-bold text-[11px] uppercase rounded transition cursor-pointer flex items-center justify-center gap-1.5"
-                  title="Bridge accumulator multiplier directly to Aviator flight project"
                 >
                   <Plane className="w-3.5 h-3.5 transform -rotate-45 text-cyan-400" />
-                  ⚡ APPLY ACCA MULTIPLIER TO FLIGHT PROJECT ({totalOdds.toFixed(2)}x)
+                  APPLY ACCA MULTIPLIER TO FLIGHT ({totalOdds.toFixed(2)}x)
                 </button>
               </div>
             </div>
           )}
 
           {statusMsg && (
-            <div className={`p-2.5 rounded text-[11px] border font-semibold ${
-              statusMsg.startsWith('ERROR') 
-                ? 'bg-rose-950/80 border-rose-500/40 text-rose-300' 
-                : 'bg-emerald-950/80 border-emerald-500/40 text-emerald-300'
-            }`}>
-              // {statusMsg}
+            <div
+              className={`p-2.5 rounded text-[11px] border font-semibold ${
+                statusMsg.startsWith('ERROR')
+                  ? 'bg-rose-950/80 border-rose-500/40 text-rose-300'
+                  : 'bg-emerald-950/80 border-emerald-500/40 text-emerald-300'
+              }`}
+            >
+              {statusMsg}
             </div>
           )}
 
-          {/* Active Placed Bets */}
           {activeBets.length > 0 && (
             <div className="pt-3 border-t border-slate-800 space-y-1.5">
               <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
@@ -254,11 +294,14 @@ export function BetSlip({
               </span>
               <div className="space-y-1.5">
                 {activeBets.map((b) => (
-                  <div key={b.id} className="p-2 rounded bg-slate-900 border border-slate-800 flex items-center justify-between text-[11px]">
+                  <div
+                    key={b.id}
+                    className="p-2 rounded bg-slate-900 border border-slate-800 flex items-center justify-between text-[11px]"
+                  >
                     <div>
                       <div className="text-cyan-400 font-bold">{b.id}</div>
                       <div className="text-[10px] text-slate-400">
-                        ${b.stake} @ {b.odds}x ({b.picks.length} legs)
+                        ${b.stake} @ {b.odds}x ({b.picks.length} legs) • {b.timestamp}
                       </div>
                     </div>
                     <div className="text-right">
@@ -275,4 +318,3 @@ export function BetSlip({
     </div>
   );
 }
-export default BetSlip;
