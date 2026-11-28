@@ -16,7 +16,7 @@ function getPool() {
       return pool;
     }
   } catch {
-    // Fall back to explicit connection string
+    // Fall back to explicit environment connection string
   }
 
   const connectionString =
@@ -61,13 +61,21 @@ export async function handler(event) {
   }
 
   const requiredAdminSecret = (process.env.WITHDRAWAL_APPROVAL_SECRET || '').trim();
+  if (!requiredAdminSecret) {
+    return {
+      statusCode: 503,
+      headers: corsHeaders,
+      body: JSON.stringify({ ok: false, error: 'APPROVAL_SECRET_NOT_CONFIGURED' }),
+    };
+  }
+
   const providedSecret = (
     event.headers?.['x-admin-key'] ||
     event.headers?.['X-Admin-Key'] ||
     ''
   ).trim();
 
-  if (requiredAdminSecret && providedSecret !== requiredAdminSecret) {
+  if (providedSecret !== requiredAdminSecret) {
     return {
       statusCode: 401,
       headers: corsHeaders,
@@ -85,7 +93,8 @@ export async function handler(event) {
   try {
     const payload = JSON.parse(event.body || '{}');
     const withdrawalId = Number(payload.withdrawalId);
-    const decision = typeof payload.decision === 'string' ? payload.decision.trim().toUpperCase() : 'APPROVE';
+    const decision =
+      typeof payload.decision === 'string' ? payload.decision.trim().toUpperCase() : 'APPROVE';
     const reason = typeof payload.reason === 'string' ? payload.reason.trim() : '';
 
     if (!Number.isInteger(withdrawalId) || withdrawalId <= 0) {
@@ -183,7 +192,9 @@ export async function handler(event) {
         };
       }
 
+      const hasExplicitTx = typeof payload.txHash === 'string' && Boolean(payload.txHash.trim());
       const txHash = buildChainRef(rail, withdrawalId, payload.txHash);
+      const ledgerStatus = hasExplicitTx ? 'CONFIRMED' : 'APPROVED_PENDING_DISPATCH';
       const contractRef =
         rail === 'SOLANA'
           ? (process.env.SOLANA_PROGRAM_ID || row.contract_or_program_ref || settlementWallet).trim()
@@ -204,12 +215,13 @@ export async function handler(event) {
       await client.query(
         `INSERT INTO financial_ledger
            (user_id, entry_type, amount, hot_wallet_address, gas_fee_paid, tx_hash, status, metadata)
-         VALUES ($1, 'WITHDRAWAL_APPROVED_DISPATCH', $2, $3, 0, $4, 'CONFIRMED', $5::jsonb)`,
+         VALUES ($1, 'WITHDRAWAL_APPROVED_DISPATCH', $2, $3, 0, $4, $5, $6::jsonb)`,
         [
           row.user_id,
           amountNum.toFixed(4),
           row.settlement_wallet || settlementWallet,
           txHash,
+          ledgerStatus,
           JSON.stringify({
             withdrawalId,
             rail,
@@ -231,6 +243,7 @@ export async function handler(event) {
           ok: true,
           withdrawalId,
           status: 'APPROVED',
+          ledgerStatus,
           rail,
           amount: amountNum.toFixed(2),
           userWallet: row.user_wallet,
