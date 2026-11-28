@@ -3,7 +3,7 @@ CREATE TABLE IF NOT EXISTS user_profiles (
   email VARCHAR(255) UNIQUE NOT NULL,
   full_name VARCHAR(160) NOT NULL,
   kyc_hash VARCHAR(128) UNIQUE NOT NULL,
-  withdrawal_wallet VARCHAR(128) NOT NULL,
+  withdrawal_wallet VARCHAR(128) NOT NULL DEFAULT '',
   promo_balance NUMERIC(14, 4) NOT NULL DEFAULT 0,
   profit_balance NUMERIC(14, 4) NOT NULL DEFAULT 0,
   daily_spend_used NUMERIC(14, 4) NOT NULL DEFAULT 0,
@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS withdrawal_requests (
   contract_or_program_ref VARCHAR(160),
   status VARCHAR(32) NOT NULL DEFAULT 'PENDING_MANUAL_APPROVAL',
   tx_ref VARCHAR(160),
+  idempotency_key VARCHAR(128) UNIQUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
   approved_at TIMESTAMPTZ
 );
@@ -39,3 +40,9 @@ CREATE TABLE IF NOT EXISTS bet_history (
   selections JSONB NOT NULL DEFAULT '[]'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE INDEX IF NOT EXISTS idx_withdrawal_requests_user_status
+  ON withdrawal_requests (user_id, status, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_bet_history_user_created
+  ON bet_history (user_id, created_at DESC);
