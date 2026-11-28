@@ -104,6 +104,18 @@ export async function handler(event) {
         dbStatus = `ERROR (${e instanceof Error ? e.message : 'DB_UNREACHABLE'})`;
       }
 
+      const functions = [
+        { name: 'settle', path: '/.netlify/functions/settle', status: 'ACTIVE' },
+        { name: 'withdraw', path: '/.netlify/functions/withdraw', status: 'ACTIVE' },
+        { name: 'approve-withdrawal', path: '/.netlify/functions/approve-withdrawal', status: 'ACTIVE' },
+        { name: 'account-sync', path: '/.netlify/functions/account-sync', status: 'ACTIVE' },
+        { name: 'round', path: '/.netlify/functions/round', status: 'ACTIVE' },
+        { name: 'live-odds', path: '/.netlify/functions/live-odds', status: 'ACTIVE' },
+        { name: 'live-events', path: '/.netlify/functions/live-events', status: 'ACTIVE' },
+        { name: 'sports-catalog', path: '/.netlify/functions/sports-catalog', status: 'ACTIVE' },
+        { name: 'system', path: '/.netlify/functions/system', status: 'ACTIVE' },
+      ];
+
       return {
         statusCode: 200,
         headers: corsHeaders,
@@ -113,13 +125,7 @@ export async function handler(event) {
           runtime: 'NETLIFY_SERVERLESS_FUNCTIONS',
           settlementWallet,
           oddsFeedConfigured: Boolean(process.env.ODDS_API_KEY),
-          functions: [
-            { name: 'settle', path: '/.netlify/functions/settle', status: 'ACTIVE' },
-            { name: 'withdraw', path: '/.netlify/functions/withdraw', status: 'ACTIVE' },
-            { name: 'round', path: '/.netlify/functions/round', status: 'ACTIVE' },
-            { name: 'live-odds', path: '/.netlify/functions/live-odds', status: 'ACTIVE' },
-            { name: 'system', path: '/.netlify/functions/system', status: 'ACTIVE' },
-          ],
+          functions,
           database: {
             provider: 'POSTGRESQL',
             status: dbStatus,
@@ -160,7 +166,7 @@ export async function handler(event) {
         oddsFeedConfigured: Boolean(process.env.ODDS_API_KEY),
         databaseStatus: dbStatus,
         databaseLatencyMs: dbLatencyMs,
-        functionsCount: 5,
+        functionsCount: 9,
         executionTimeMs: Date.now() - startTime,
         timestamp: new Date().toISOString(),
       }),
