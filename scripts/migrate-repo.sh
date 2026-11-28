@@ -2,8 +2,8 @@
 # ==============================================================================
 # Sovereign Betting Deployment - GitHub Repository Migration Helper
 # ==============================================================================
-# This script creates a bare mirror clone of the source repository and pushes
-# all branches, tags, and commit history to a new GitHub repository.
+# Creates a bare mirror clone of the source repository and pushes all branches,
+# tags, and commit history to a target GitHub repository.
 #
 # Usage:
 #   ./scripts/migrate-repo.sh [OLD_REPO_OR_USER] [NEW_REPO_OR_USER]
@@ -12,13 +12,13 @@
 
 set -euo pipefail
 
-# ANSI colors for terminal output
+# Terminal formatting codes (CLI output only; does not affect app CSS)
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 BOLD='\033[1m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
 DEFAULT_REPO_NAME="betting-deployment"
 DEFAULT_OLD_OWNER="kcavemanpurge"
@@ -34,11 +34,11 @@ ${BOLD}Usage:${NC}
   $0 [options] [OLD_ACCOUNT_OR_REPO] [NEW_ACCOUNT_OR_REPO]
 
 ${BOLD}Options:${NC}
-  -o, --old <account|url>   Source GitHub username or full repo URL (Default: ${DEFAULT_OLD_OWNER})
-  -n, --new <account|url>   Target GitHub username or full repo URL (Required)
-  -p, --protocol <ssh|https> Git protocol to use when constructing URLs (Default: https)
-  -d, --dry-run             Simulate actions without cloning or pushing
-  -h, --help                Show this help message
+  -o, --old <account|url>    Source GitHub username or full repo URL (Default: ${DEFAULT_OLD_OWNER})
+  -n, --new <account|url>    Target GitHub username or full repo URL (Required)
+  -p, --protocol <ssh|https> Git protocol when constructing URLs (Default: https)
+  -d, --dry-run              Simulate actions without cloning or pushing
+  -h, --help                 Show this help message
 
 ${BOLD}Examples:${NC}
   # Interactive mode:
@@ -47,7 +47,7 @@ ${BOLD}Examples:${NC}
   # Positional arguments:
   $0 kcavemanpurge my-new-account
 
-  # Specifying custom full URLs:
+  # Custom full URLs:
   $0 --old git@github.com:old-user/betting-deployment.git --new git@github.com:new-user/betting-deployment.git
 
   # Dry run:
@@ -56,7 +56,6 @@ EOF
   exit 0
 }
 
-# Parse options
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -o|--old)
@@ -94,19 +93,16 @@ done
 
 echo -e "${CYAN}${BOLD}=== GitHub Repository Migration Tool ===${NC}\n"
 
-# Verify git command availability
 if ! command -v git &> /dev/null; then
   echo -e "${RED}Error: 'git' is not installed or not found in PATH.${NC}"
   exit 1
 fi
 
-# Resolve Source Repository URL
 if [[ -z "$OLD_TARGET" ]]; then
   read -r -p "Enter source GitHub username or full repo URL [Default: ${DEFAULT_OLD_OWNER}]: " INPUT_OLD
   OLD_TARGET="${INPUT_OLD:-$DEFAULT_OLD_OWNER}"
 fi
 
-# Resolve Target Repository URL
 if [[ -z "$NEW_TARGET" ]]; then
   read -r -p "Enter target GitHub username or full repo URL: " NEW_TARGET
   if [[ -z "$NEW_TARGET" ]]; then
@@ -119,13 +115,11 @@ format_repo_url() {
   local target="$1"
   local proto="$2"
 
-  # If it's already a full URL or SSH target
   if [[ "$target" =~ ^https?:// ]] || [[ "$target" =~ ^git@ ]]; then
     echo "$target"
     return
   fi
 
-  # If target is "owner/repo"
   local owner=""
   local repo=""
   if [[ "$target" == *"/"* ]]; then
@@ -136,7 +130,6 @@ format_repo_url() {
     repo="$DEFAULT_REPO_NAME"
   fi
 
-  # Strip any trailing .git if present
   repo="${repo%.git}"
 
   if [[ "$proto" == "ssh" ]]; then
@@ -155,9 +148,9 @@ echo -e "Mode              : $(if [ "$DRY_RUN" = true ]; then echo -e "${YELLOW}
 echo ""
 
 echo -e "${YELLOW}${BOLD}Pre-flight Checklist:${NC}"
-echo -e " 1. Ensure you have created the empty repository on the target account."
-echo -e " 2. Do NOT initialize the new repo with a README, .gitignore, or license."
-echo -e " 3. Verify write permissions and credentials for the target repository."
+echo -e " 1. Create an empty repository on the target GitHub account/org."
+echo -e " 2. Do NOT initialize the target repo with README, .gitignore, or license."
+echo -e " 3. Confirm git credentials/SSH keys have push access to the target repo."
 echo ""
 
 if [ "$DRY_RUN" = false ]; then
@@ -168,10 +161,8 @@ if [ "$DRY_RUN" = false ]; then
   fi
 fi
 
-# Create a safe temporary directory
 TEMP_MIRROR_DIR="$(mktemp -d -t git-mirror-XXXXXX.git)"
 
-# Cleanup trap
 cleanup() {
   if [[ -d "$TEMP_MIRROR_DIR" ]]; then
     echo -e "\n${CYAN}Cleaning up temporary mirror workspace...${NC}"
@@ -183,7 +174,7 @@ trap cleanup EXIT INT TERM
 
 echo ""
 if [ "$DRY_RUN" = true ]; then
-  echo -e "${YELLOW}[DRY RUN] Would execute:${NC}"
+  echo -e "${YELLOW}[DRY RUN] Planned commands:${NC}"
   echo -e "  git clone --mirror \"${SRC_URL}\" \"${TEMP_MIRROR_DIR}\""
   echo -e "  cd \"${TEMP_MIRROR_DIR}\""
   echo -e "  git push --mirror \"${DEST_URL}\""
@@ -193,11 +184,9 @@ if [ "$DRY_RUN" = true ]; then
   exit 0
 fi
 
-# Step 1: Clone bare mirror
 echo -e "${CYAN}Step 1/2: Cloning bare mirror from source...${NC}"
 git clone --mirror "$SRC_URL" "$TEMP_MIRROR_DIR"
 
-# Step 2: Push bare mirror to destination
 echo -e "\n${CYAN}Step 2/2: Pushing all refs, branches, and tags to destination...${NC}"
 cd "$TEMP_MIRROR_DIR"
 git push --mirror "$DEST_URL"
@@ -207,8 +196,8 @@ echo -e "\n${GREEN}${BOLD}✓ Repository migration successfully completed!${NC}"
 echo -e "All branches, tags, and commits are mirrored to ${BOLD}${DEST_URL}${NC}."
 echo ""
 echo -e "${BOLD}Next steps for Netlify:${NC}"
-echo -e " 1. Go to Netlify App -> Project Settings -> Build & Deploy."
-echo -e " 2. In Continuous Deployment, click 'Link a different repository'."
-echo -e " 3. Authorize and select your new repository (${DEST_URL})."
-echo -e " 4. Verify build settings (Command: npm run build, Publish dir: public)."
+echo -e " 1. Open Netlify -> Project Settings -> Build & Deploy -> Continuous Deployment."
+echo -e " 2. Link the new repository (${DEST_URL})."
+echo -e " 3. Confirm build command (npm run build) and publish directory match netlify.toml."
+echo -e " 4. Verify environment variables (DATABASE_URL, Stripe/wallet secrets) are set."
 echo -e "================================================================================"
