@@ -1,0 +1,97 @@
+import { useState, useEffect, useCallback } from 'react';
+
+function getSessionChatKey(userId) {
+  return userId ? `terminal_ephemeral_chat::${userId}` : null;
+}
+
+export function useEphemeralAvatarChat(userId, activeAvatarId = 'default_avatar') {
+  const [messages, setMessages] = useState([]);
+
+  // Load only if a userId exists; otherwise force empty
+  useEffect(() => {
+    const key = getSessionChatKey(userId);
+    if (!key) {
+      setMessages([]);
+      return;
+    }
+    try {
+      const raw = sessionStorage.getItem(key);
+      setMessages(raw ? JSON.parse(raw) : []);
+    } catch {
+      setMessages([]);
+    }
+  }, [userId]);
+
+  // Persist only for the active user's current browser session
+  useEffect(() => {
+    const key = getSessionChatKey(userId);
+    if (!key) return;
+    try {
+      sessionStorage.setItem(key, JSON.stringify(messages));
+    } catch {
+      // Ignore storage errors
+    }
+  }, [userId, messages]);
+
+  const sendMessage = useCallback(
+    (text) => {
+      const cleanUser = (userId || '').trim();
+      const cleanText = (text || '').trim();
+      if (!cleanUser || !cleanText) return false;
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          userId: cleanUser,
+          avatarId: activeAvatarId,
+          text: cleanText,
+          ts: new Date().toISOString(),
+        },
+      ]);
+      return true;
+    },
+    [userId, activeAvatarId]
+  );
+
+  const clearTerminalChat = useCallback(() => {
+    const key = getSessionChatKey(userId);
+    setMessages([]);
+    if (key) {
+      try {
+        sessionStorage.removeItem(key);
+      } catch {
+        // Ignore storage errors
+      }
+    }
+  }, [userId]);
+
+  // Wipe chat when user exits/closes the terminal
+  useEffect(() => {
+    const key = getSessionChatKey(userId);
+    if (!key) return;
+
+    const handleExit = () => {
+      try {
+        sessionStorage.removeItem(key);
+      } catch {
+        // Ignore storage errors
+      }
+    };
+
+    window.addEventListener('pagehide', handleExit);
+    window.addEventListener('beforeunload', handleExit);
+    return () => {
+      window.removeEventListener('pagehide', handleExit);
+      window.removeEventListener('beforeunload', handleExit);
+      handleExit();
+    };
+  }, [userId]);
+
+  return {
+    messages,
+    sendMessage,
+    clearTerminalChat,
+    hasActiveUser: Boolean((userId || '').trim()),
+  };
+}
