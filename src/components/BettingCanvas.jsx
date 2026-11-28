@@ -1,13 +1,26 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { sound } from '../utils/audio.js';
-import { Zap, Lock, Unlock, Clock } from 'lucide-react';
+import {
+  Zap,
+  Lock,
+  Unlock,
+  Clock,
+  MessageSquare,
+  Send,
+  Trash2,
+} from 'lucide-react';
 
 const MAX_DESTINATION_MULTIPLIER = 10000.0;
 const COUNTDOWN_SECONDS = 5;
+const EPHEMERAL_CHAT_PREFIX = 'sovereign_canvas_ephemeral_chat::';
+
+function getChatKey(userId) {
+  const clean = (userId || '').trim();
+  return clean ? `${EPHEMERAL_CHAT_PREFIX}${clean}` : null;
+}
 
 function scaleMultiplierToY(mult, height) {
   const safeMult = Math.max(1, Number(mult) || 1);
-  // Smooth log-based progress from 1x up to 10,000x so early climbs and high runs both stay readable
   const progress = Math.min(1, Math.log10(safeMult) / Math.log10(MAX_DESTINATION_MULTIPLIER));
   const topPadding = 24;
   const bottomPadding = 18;
@@ -33,11 +46,18 @@ export function BettingCanvas({
   const [countdown, setCountdown] = useState(0);
   const [queuedForNextFlight, setQueuedForNextFlight] = useState(false);
 
-  // Flexible user-controlled Auto-Lock state (persists across runs until toggled off)
+  // Flexible user-controlled Auto-Lock state
   const [autoLockEnabled, setAutoLockEnabled] = useState(false);
   const [autoTargetInput, setAutoTargetInput] = useState(
     autoCashoutMultiplier ? String(autoCashoutMultiplier) : '3.00'
   );
+
+  // Ephemeral user-scoped session chat (empty when no user; deleted on exit)
+  const cleanUserId = (userId || '').trim();
+  const hasActiveUser = Boolean(cleanUserId);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatInput, setChatInput] = useState('');
+  const [chatMessages, setChatMessages] = useState([]);
 
   const [settlementStatus, setSettlementStatus] = useState(null);
   const [settledData, setSettledData] = useState(null);
@@ -63,33 +83,106 @@ export function BettingCanvas({
     }
   }, [autoCashoutMultiplier]);
 
+  // Only allow session chat history when a userId exists; never store history without a user
+  useEffect(() => {
+    const key = getChatKey(cleanUserId);
+    if (!key) {
+      setChatMessages([]);
+      return;
+    }
+    try {
+      const raw = sessionStorage.getItem(key);
+      setChatMessages(raw ? JSON.parse(raw) : []);
+    } catch {
+      setChatMessages([]);
+    }
+  }, [cleanUserId]);
+
+  useEffect(() => {
+    const key = getChatKey(cleanUserId);
+    if (!key) return;
+    try {
+      sessionStorage.setItem(key, JSON.stringify(chatMessages));
+    } catch {
+      // Ignore storage errors
+    }
+  }, [cleanUserId, chatMessages]);
+
+  const wipeSessionChat = useCallback(() => {
+    const key = getChatKey(cleanUserId);
+    setChatMessages([]);
+    if (key) {
+      try {
+        sessionStorage.removeItem(key);
+      } catch {
+        // Ignore storage errors
+      }
+    }
+  }, [cleanUserId]);
+
+  // Delete session chat history on user exit / unmount / page close
+  useEffect(() => {
+    const key = getChatKey(cleanUserId);
+    if (!key) return;
+
+    const handleExit = () => {
+      try {
+        sessionStorage.removeItem(key);
+      } catch {
+        // Ignore storage errors
+      }
+    };
+
+    window.addEventListener('pagehide', handleExit);
+    window.addEventListener('beforeunload', handleExit);
+    return () => {
+      window.removeEventListener('pagehide', handleExit);
+      window.removeEventListener('beforeunload', handleExit);
+      handleExit();
+    };
+  }, [cleanUserId]);
+
+  const handleSendChatMessage = (e) => {
+    e.preventDefault();
+    if (!hasActiveUser) return;
+    const text = chatInput.trim();
+    if (!text) return;
+
+    setChatMessages((prev) => [
+      ...prev,
+      {
+        id: `chat_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        userId: cleanUserId,
+        avatarCode: cleanUserId.slice(0, 2).toUpperCase(),
+        text,
+        ts: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      },
+    ]);
+    setChatInput('');
+  };
+
   const parsedAutoTarget = () => {
     const val = Number(autoTargetInput);
     if (!Number.isFinite(val) || val < 1.01) return null;
     return Math.min(maxTrajectoryCap, Number(val.toFixed(2)));
   };
 
-  // Supports high-trajectory tail rolls up to maxTrajectoryCap (default 10,000x)
   const generateCrashMultiplier = useCallback(() => {
     const r = Math.random();
-    if (r < 0.03) return 1.0; // Instant bust floor
+    if (r < 0.03) return 1.0;
 
-    // Blend standard curve with a tail path that can reach up to maxTrajectoryCap
     const tailRoll = Math.random();
     let rawMult;
     if (tailRoll > 0.996) {
-      // Rare deep-space trajectory (up to 10,000x)
       const deepRatio = Math.random() ** 2.4;
       rawMult = 50 + deepRatio * (maxTrajectoryCap - 50);
     } else if (tailRoll > 0.94) {
-      // Mid-high trajectory (10x - 250x)
       rawMult = 10 + (Math.random() ** 1.8) * 240;
     } else {
       rawMult = 0.96 / Math.max(0.001, 1 - r * 0.92);
     }
 
-    const clamped = Math.min(maxTrajectoryCap, Math.max(1.01, Number(rawMult.toFixed(2))));
-    return clamped;
+    return Math.min(maxTrajectoryCap, Math.max(1.01, Number(rawMult.toFixed(2))));
   }, [maxTrajectoryCap]);
 
   const executeSettlement = useCallback(
@@ -120,7 +213,7 @@ export function BettingCanvas({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             sessionId,
-            userId,
+            userId: cleanUserId,
             wagerAmount: stake,
             multiplier: finalMult,
             triggerType: triggerLabel,
@@ -132,11 +225,13 @@ export function BettingCanvas({
 
         if (res.ok && (data.ok || data.success)) {
           const payout = Number(data.payoutAmount ?? stake * finalMult).toFixed(2);
-          setSettlementStatus(`[${triggerLabel}] SETTLED: +$${payout} @ ${finalMult.toFixed(2)}x (${elapsed}ms)`);
+          setSettlementStatus(
+            `[${triggerLabel}] SETTLED: +$${payout} @ ${finalMult.toFixed(2)}x (${elapsed}ms)`
+          );
           const record = {
             id: data.settlementId || sessionId,
             session_id: sessionId,
-            user_id: userId,
+            user_id: cleanUserId,
             wager_amount: stake.toFixed(2),
             multiplier: finalMult.toFixed(2),
             payout_amount: payout,
@@ -152,13 +247,13 @@ export function BettingCanvas({
         setSettlementStatus(`NETWORK ERROR: Unable to verify settlement on server for ${sessionId}`);
       }
     },
-    [userId, wagerAmount, maxTrajectoryCap, onSettlementComplete]
+    [cleanUserId, wagerAmount, maxTrajectoryCap, onSettlementComplete]
   );
 
   const launchFlightWithStake = useCallback(
     (stakeToUse) => {
       const cleanStake = Number(stakeToUse) || 0;
-      if (!userId || cleanStake <= 0) {
+      if (!cleanUserId || cleanStake <= 0) {
         setSettlementStatus('Sign in and set a positive stake (> $0) before launching.');
         setQueuedForNextFlight(false);
         return;
@@ -185,10 +280,9 @@ export function BettingCanvas({
 
       setIsRunning(true);
     },
-    [userId, generateCrashMultiplier]
+    [cleanUserId, generateCrashMultiplier]
   );
 
-  // Countdown ticker between flights; auto-launches queued stake when countdown hits 0
   useEffect(() => {
     if (countdown <= 0 || isRunning) return;
 
@@ -208,12 +302,11 @@ export function BettingCanvas({
 
   const handlePrimaryAction = () => {
     const stake = Number(wagerAmount) || 0;
-    if (!userId || stake <= 0) {
+    if (!cleanUserId || stake <= 0) {
       setSettlementStatus('Sign in and enter any positive stake amount to participate.');
       return;
     }
 
-    // If a flight is already in progress, queue stake for the next flight
     if (isRunning) {
       queuedStakeRef.current = stake;
       setQueuedForNextFlight((prev) => !prev);
@@ -225,7 +318,6 @@ export function BettingCanvas({
       return;
     }
 
-    // If in countdown window, arm/launch immediately or queue
     if (countdown > 0) {
       queuedStakeRef.current = stake;
       setQueuedForNextFlight(true);
@@ -248,13 +340,29 @@ export function BettingCanvas({
       const width = canvas.width;
       const height = canvas.height;
 
-      ctx.fillStyle = '#070c14';
+      // Sovereign dark ground
+      ctx.fillStyle = '#070c09';
       ctx.fillRect(0, 0, width, height);
+
+      // Subtle Sovereign coordinate plane
+      ctx.strokeStyle = 'rgba(163, 230, 53, 0.08)';
+      ctx.lineWidth = 1;
+      for (let gx = 48; gx < width - 16; gx += 64) {
+        ctx.beginPath();
+        ctx.moveTo(gx, 12);
+        ctx.lineTo(gx, height - 12);
+        ctx.stroke();
+      }
+      for (let gy = 32; gy < height - 12; gy += 44) {
+        ctx.beginPath();
+        ctx.moveTo(16, gy);
+        ctx.lineTo(width - 16, gy);
+        ctx.stroke();
+      }
 
       const { isRunning: running, currentMult, crashPoint, cashedOut } = stateRef.current;
 
       if (running) {
-        // Dynamic climb rate that scales cleanly across low and high multipliers
         const climbStep = 0.008 + Math.min(0.45, (currentMult - 1.0) * 0.004);
         const nextMult = Math.min(
           maxTrajectoryCap,
@@ -267,19 +375,19 @@ export function BettingCanvas({
           sound.playVectorClimb(nextMult);
         }
 
-        // Check flexible user-selected Auto-Lock target
         if (targetAuto && !cashedOut && nextMult >= targetAuto) {
           executeSettlement(targetAuto, `AUTO-LOCK ${targetAuto.toFixed(2)}x`);
           return;
         }
 
-        // Check crash point
         if (nextMult >= crashPoint) {
           stateRef.current.isRunning = false;
           setIsRunning(false);
           setIsCrashed(true);
           sound.playCrash();
-          setSettlementStatus(`FLIGHT ENDED AT ${nextMult.toFixed(2)}x — NEXT BOARDING IN ${COUNTDOWN_SECONDS}s`);
+          setSettlementStatus(
+            `FLIGHT ENDED AT ${nextMult.toFixed(2)}x — NEXT BOARDING IN ${COUNTDOWN_SECONDS}s`
+          );
           setCountdown(COUNTDOWN_SECONDS);
 
           const crashY = scaleMultiplierToY(nextMult, height);
@@ -290,7 +398,7 @@ export function BettingCanvas({
               vx: (Math.random() - 0.65) * 9,
               vy: (Math.random() - 0.5) * 9,
               life: 1.0,
-              color: '#f43f5e',
+              color: '#f87171',
             });
           }
           return;
@@ -304,39 +412,82 @@ export function BettingCanvas({
             vx: -Math.random() * 3 - 1,
             vy: (Math.random() - 0.5) * 2,
             life: 1.0,
-            color: '#34d399',
+            color: '#bef264',
           });
         }
       }
 
       const displayMult = stateRef.current.currentMult;
       const targetY = scaleMultiplierToY(displayMult, height);
+      const startX = 16;
+      const endX = width - 16;
       const startY = height - 18;
 
+      const strokeColor = isCrashed
+        ? '#f87171'
+        : hasCashedOutThisRound
+          ? '#34d399'
+          : '#bef264';
+
+      const fillTop = isCrashed
+        ? 'rgba(248, 113, 113, 0.22)'
+        : hasCashedOutThisRound
+          ? 'rgba(52, 211, 153, 0.22)'
+          : 'rgba(163, 230, 53, 0.22)';
+
       const gradient = ctx.createLinearGradient(0, targetY, 0, height);
-      gradient.addColorStop(0, isCrashed ? 'rgba(244, 63, 94, 0.25)' : 'rgba(16, 185, 129, 0.22)');
-      gradient.addColorStop(1, 'rgba(7, 12, 20, 0.0)');
+      gradient.addColorStop(0, fillTop);
+      gradient.addColorStop(1, 'rgba(7, 12, 9, 0.0)');
 
       ctx.fillStyle = gradient;
       ctx.beginPath();
-      ctx.moveTo(16, startY);
-      ctx.quadraticCurveTo(width * 0.55, startY, width - 16, targetY);
-      ctx.lineTo(width - 16, startY);
+      ctx.moveTo(startX, startY);
+      ctx.quadraticCurveTo(width * 0.55, startY, endX, targetY);
+      ctx.lineTo(endX, startY);
       ctx.closePath();
       ctx.fill();
 
-      ctx.strokeStyle = isCrashed ? '#f43f5e' : '#10b981';
+      ctx.strokeStyle = strokeColor;
       ctx.lineWidth = 3;
       ctx.beginPath();
-      ctx.moveTo(16, startY);
-      ctx.quadraticCurveTo(width * 0.55, startY, width - 16, targetY);
+      ctx.moveTo(startX, startY);
+      ctx.quadraticCurveTo(width * 0.55, startY, endX, targetY);
       ctx.stroke();
 
-      if (running) {
-        ctx.fillStyle = '#a7f3d0';
+      // Aim reticle + plane nose at the active aim spot
+      if (running || (!isCrashed && displayMult > 1)) {
+        const pitchAngle = Math.atan2(targetY - startY, endX - startX) * 0.65;
+        ctx.save();
+        ctx.translate(endX, targetY);
+
+        ctx.strokeStyle = strokeColor;
+        ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.arc(width - 16, targetY, 5, 0, Math.PI * 2);
+        ctx.arc(0, 0, 12, 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(-17, 0);
+        ctx.lineTo(-8, 0);
+        ctx.moveTo(8, 0);
+        ctx.lineTo(17, 0);
+        ctx.moveTo(0, -17);
+        ctx.lineTo(0, -8);
+        ctx.moveTo(0, 8);
+        ctx.lineTo(0, 17);
+        ctx.stroke();
+
+        ctx.rotate(pitchAngle);
+        ctx.fillStyle = '#facc15';
+        ctx.beginPath();
+        ctx.moveTo(10, 0);
+        ctx.lineTo(-5, -5.5);
+        ctx.lineTo(-2, 0);
+        ctx.lineTo(-5, 5.5);
+        ctx.closePath();
         ctx.fill();
+
+        ctx.restore();
       }
 
       for (let i = stateRef.current.particles.length - 1; i >= 0; i--) {
@@ -365,25 +516,115 @@ export function BettingCanvas({
 
     render();
     return () => cancelAnimationFrame(animationId);
-  }, [isRunning, isCrashed, autoLockEnabled, autoTargetInput, maxTrajectoryCap, executeSettlement]);
+  }, [
+    isRunning,
+    isCrashed,
+    hasCashedOutThisRound,
+    autoLockEnabled,
+    autoTargetInput,
+    maxTrajectoryCap,
+    executeSettlement,
+  ]);
 
   const stakeNum = Number(wagerAmount) || 0;
   const stakeDisplay = stakeNum.toFixed(2);
   const livePayout = (stakeNum * multiplier).toFixed(2);
 
   return (
-    <div className="flex flex-col items-center bg-slate-950 p-5 sm:p-6 rounded-xl border border-slate-800 font-mono shadow-2xl relative overflow-hidden">
-      {/* Top Telemetry & Next-Flight Countdown Bar */}
-      <div className="w-full flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400 uppercase tracking-widest pb-3 border-b border-slate-800 mb-4">
-        <span>AVIATOR VECTOR</span>
-        {countdown > 0 ? (
-          <span className="text-amber-400 flex items-center gap-1 font-bold">
-            <Clock className="w-3.5 h-3.5" /> NEXT FLIGHT IN {countdown}s
-          </span>
-        ) : (
-          <span>STAKE: ${stakeDisplay}</span>
-        )}
+    <div className="flex flex-col items-center bg-[#070c09] p-5 sm:p-6 rounded-xl border border-lime-500/25 font-mono shadow-2xl relative overflow-hidden">
+      {/* Top Telemetry & Session Chat Toggle */}
+      <div className="w-full flex flex-wrap items-center justify-between gap-2 text-xs text-lime-200/70 uppercase tracking-widest pb-3 border-b border-lime-500/15 mb-4">
+        <span>SOVEREIGN VECTOR</span>
+        <div className="flex items-center gap-3">
+          {countdown > 0 ? (
+            <span className="text-amber-400 flex items-center gap-1 font-bold">
+              <Clock className="w-3.5 h-3.5" /> NEXT FLIGHT IN {countdown}s
+            </span>
+          ) : (
+            <span>STAKE: ${stakeDisplay}</span>
+          )}
+          <button
+            type="button"
+            onClick={() => setChatOpen((prev) => !prev)}
+            className="px-2.5 py-1 rounded bg-[#0d1711] hover:bg-[#14231a] text-lime-300 border border-lime-500/30 text-[11px] font-bold flex items-center gap-1.5 cursor-pointer"
+          >
+            <MessageSquare className="w-3.5 h-3.5" />
+            <span>CHAT ({hasActiveUser ? chatMessages.length : 0})</span>
+          </button>
+        </div>
       </div>
+
+      {/* Ephemeral Avatar Session Chat (Zero history without user; wiped on exit) */}
+      {chatOpen && (
+        <div className="w-full max-w-xl mb-4 p-3.5 rounded-lg bg-[#0b130e] border border-lime-500/25 space-y-3">
+          <div className="flex items-center justify-between border-b border-lime-500/15 pb-2">
+            <div className="flex items-center gap-2 text-xs font-bold text-lime-300">
+              <span className="w-6 h-6 rounded-full bg-lime-400 text-[#070c09] flex items-center justify-center font-black text-[11px]">
+                {hasActiveUser ? cleanUserId.slice(0, 2).toUpperCase() : '--'}
+              </span>
+              <span>
+                {hasActiveUser
+                  ? `AVATAR SESSION: ${cleanUserId}`
+                  : 'NO USER — CHAT HISTORY DISABLED'}
+              </span>
+            </div>
+            {hasActiveUser && chatMessages.length > 0 && (
+              <button
+                type="button"
+                onClick={wipeSessionChat}
+                className="text-[11px] text-amber-300 hover:text-amber-200 flex items-center gap-1 cursor-pointer"
+              >
+                <Trash2 className="w-3 h-3" /> Clear Session
+              </button>
+            )}
+          </div>
+
+          {!hasActiveUser ? (
+            <div className="text-xs text-lime-200/50 py-3 text-center">
+              Set an active user ID to join the live avatar conversation. Without a user, no history is kept.
+            </div>
+          ) : (
+            <>
+              <div className="max-h-36 overflow-y-auto space-y-1.5 pr-1 text-xs">
+                {chatMessages.length === 0 ? (
+                  <div className="text-lime-200/45 py-2 text-center">
+                    Active session only. Messages delete automatically when you exit the terminal.
+                  </div>
+                ) : (
+                  chatMessages.map((msg) => (
+                    <div
+                      key={msg.id}
+                      className="p-2 rounded bg-[#070c09] border border-lime-500/15 flex items-start justify-between gap-2"
+                    >
+                      <div>
+                        <span className="text-lime-400 font-bold mr-1.5">[{msg.avatarCode}]</span>
+                        <span className="text-white">{msg.text}</span>
+                      </div>
+                      <span className="text-[10px] text-lime-200/40 shrink-0">{msg.ts}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <form onSubmit={handleSendChatMessage} className="flex gap-2">
+                <input
+                  type="text"
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  placeholder="Speak as current avatar..."
+                  className="flex-1 bg-[#070c09] border border-lime-500/25 rounded px-3 py-1.5 text-xs text-white focus:border-lime-400 outline-none"
+                />
+                <button
+                  type="submit"
+                  className="px-3 py-1.5 rounded bg-lime-400 hover:bg-lime-300 text-[#070c09] font-extrabold text-xs flex items-center gap-1 cursor-pointer"
+                >
+                  <Send className="w-3.5 h-3.5" /> Send
+                </button>
+              </form>
+            </>
+          )}
+        </div>
+      )}
 
       {/* Trajectory Canvas */}
       <div className="relative w-full max-w-xl">
@@ -391,30 +632,30 @@ export function BettingCanvas({
           ref={canvasRef}
           width={560}
           height={320}
-          className="w-full bg-slate-900 border border-slate-800 rounded-lg"
+          className="w-full bg-[#070c09] border border-lime-500/25 rounded-lg"
         />
 
         <div className="absolute top-4 right-4 flex flex-col items-end">
-          <span className="text-xs uppercase text-slate-400 tracking-wider">
+          <span className="text-xs uppercase text-lime-200/60 tracking-wider">
             {isRunning ? 'MULTIPLIER' : isCrashed ? 'CRASHED' : 'READY'}
           </span>
           <div
             className={`text-4xl md:text-5xl font-black tracking-tight ${
-              isCrashed ? 'text-rose-500' : isRunning ? 'text-emerald-400' : 'text-slate-200'
+              isCrashed ? 'text-rose-400' : isRunning ? 'text-lime-300' : 'text-white'
             }`}
           >
             {multiplier.toFixed(2)}x
           </div>
           {isRunning && !hasCashedOutThisRound && (
-            <span className="text-xs text-emerald-300 mt-0.5">
+            <span className="text-xs text-emerald-400 mt-0.5">
               LIVE PAYOUT: ${livePayout}
             </span>
           )}
         </div>
 
         {isCrashed && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/60 rounded-lg">
-            <div className="text-center px-6 py-4 bg-rose-950/90 border border-rose-500/60 rounded text-rose-200">
+          <div className="absolute inset-0 flex items-center justify-center bg-black/65 rounded-lg">
+            <div className="text-center px-6 py-4 bg-[#190c0e]/95 border border-rose-500/60 rounded text-rose-200">
               <div className="text-2xl font-black tracking-widest text-rose-400 mb-1">CRASHED</div>
               <div className="text-xs">
                 Ended at {multiplier.toFixed(2)}x
@@ -425,10 +666,10 @@ export function BettingCanvas({
         )}
       </div>
 
-      {/* Flexible Auto-Lock Configuration (Any Target Odds, Persists Across Rounds Until Stopped) */}
-      <div className="w-full max-w-xl mt-4 p-3.5 rounded-lg bg-slate-900/90 border border-slate-800 space-y-2.5">
+      {/* Flexible Auto-Lock Configuration */}
+      <div className="w-full max-w-xl mt-4 p-3.5 rounded-lg bg-[#0b130e] border border-lime-500/20 space-y-2.5">
         <div className="flex items-center justify-between gap-2">
-          <div className="text-xs font-bold text-slate-200 uppercase tracking-wider">
+          <div className="text-xs font-bold text-lime-200 uppercase tracking-wider">
             Auto-Lock Target (Any Odds)
           </div>
           <button
@@ -436,8 +677,8 @@ export function BettingCanvas({
             onClick={() => setAutoLockEnabled((prev) => !prev)}
             className={`px-3 py-1 rounded text-xs font-bold flex items-center gap-1.5 transition cursor-pointer ${
               autoLockEnabled
-                ? 'bg-emerald-500 text-slate-950 hover:bg-emerald-400'
-                : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700'
+                ? 'bg-lime-400 text-[#070c09] hover:bg-lime-300'
+                : 'bg-[#132018] text-lime-200/80 hover:text-white border border-lime-500/25'
             }`}
           >
             {autoLockEnabled ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
@@ -453,8 +694,8 @@ export function BettingCanvas({
               onClick={() => setAutoTargetInput(preset)}
               className={`px-2.5 py-1 rounded text-xs font-bold border transition cursor-pointer ${
                 Number(autoTargetInput) === Number(preset)
-                  ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300'
-                  : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                  ? 'bg-lime-400/20 border-lime-400 text-lime-300'
+                  : 'bg-[#070c09] border-lime-500/15 text-lime-200/60 hover:text-white'
               }`}
             >
               {preset}x
@@ -470,9 +711,9 @@ export function BettingCanvas({
               value={autoTargetInput}
               onChange={(e) => setAutoTargetInput(e.target.value)}
               aria-label="Custom Auto Cashout Multiplier"
-              className="w-28 bg-slate-950 border border-slate-700 rounded px-2.5 py-1 text-xs font-bold text-emerald-300 focus:outline-none focus:border-emerald-400"
+              className="w-28 bg-[#070c09] border border-lime-500/25 rounded px-2.5 py-1 text-xs font-bold text-lime-300 focus:outline-none focus:border-lime-400"
             />
-            <span className="text-xs text-slate-400 font-bold">x</span>
+            <span className="text-xs text-lime-200/60 font-bold">x</span>
           </div>
         </div>
       </div>
@@ -483,7 +724,7 @@ export function BettingCanvas({
           <button
             type="button"
             onClick={() => executeSettlement(null, 'INSTANT CASHOUT')}
-            className="flex-1 min-w-[200px] px-6 py-3.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black uppercase tracking-wider rounded transition cursor-pointer flex items-center justify-center gap-2"
+            className="flex-1 min-w-[200px] px-6 py-3.5 bg-lime-400 hover:bg-lime-300 text-[#070c09] font-black uppercase tracking-wider rounded transition cursor-pointer flex items-center justify-center gap-2"
           >
             <Zap className="w-5 h-5" />
             CASHOUT ${livePayout} @ {multiplier.toFixed(2)}x
@@ -496,9 +737,9 @@ export function BettingCanvas({
           className={`flex-1 min-w-[200px] px-6 py-3.5 font-extrabold uppercase tracking-wider rounded transition cursor-pointer ${
             isRunning
               ? queuedForNextFlight
-                ? 'bg-amber-500 hover:bg-amber-400 text-slate-950'
-                : 'bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/40'
-              : 'bg-rose-600 hover:bg-rose-500 text-white'
+                ? 'bg-amber-400 hover:bg-amber-300 text-[#070c09]'
+                : 'bg-[#132018] hover:bg-[#1a2c21] text-amber-300 border border-amber-400/40'
+              : 'bg-emerald-500 hover:bg-emerald-400 text-[#070c09]'
           }`}
         >
           {isRunning
@@ -521,7 +762,7 @@ export function BettingCanvas({
         >
           <div>{settlementStatus}</div>
           {settledData && (
-            <div className="text-xs text-slate-400 mt-1 flex justify-center gap-3">
+            <div className="text-xs text-lime-200/60 mt-1 flex justify-center gap-3">
               <span>REF: {String(settledData.id).slice(0, 13)}</span>
               <span>{new Date(settledData.created_at).toLocaleTimeString()}</span>
             </div>
@@ -530,7 +771,7 @@ export function BettingCanvas({
       )}
 
       {/* Mature Discretionary Policy Note */}
-      <div className="mt-5 pt-3 border-t border-slate-900 w-full max-w-xl text-[11px] text-slate-500 leading-relaxed">
+      <div className="mt-5 pt-3 border-t border-lime-500/10 w-full max-w-xl text-[11px] text-lime-200/50 leading-relaxed">
         Discretionary Monthly Allocation Policy: Any monthly reward grant is discretionary, subject to ledger standing, anti-abuse verification, and scheduled cycle review rather than an automatic guarantee.
       </div>
     </div>
