@@ -8,6 +8,7 @@ import {
   jsonb,
   index,
   date,
+  unique,
 } from "drizzle-orm/pg-core";
 
 export const sportsEvents = pgTable(
@@ -52,6 +53,7 @@ export const eventMarkets = pgTable(
   },
   (table) => [
     index("idx_event_markets_event").on(table.eventId, table.marketKey),
+    unique("uq_event_market_line").on(table.eventId, table.marketKey, table.lineValue),
   ]
 );
 
@@ -74,5 +76,13 @@ export const eventHistoryDaily = pgTable(
   },
   (table) => [
     index("idx_event_history_date_sport").on(table.archiveDate, table.sportKey),
+    unique("uq_event_history_daily_date_event").on(table.archiveDate, table.eventId),
   ]
 );
+
+export type SportsEvent = typeof sportsEvents.$inferSelect;
+export type NewSportsEvent = typeof sportsEvents.$inferInsert;
+export type EventMarket = typeof eventMarkets.$inferSelect;
+export type NewEventMarket = typeof eventMarkets.$inferInsert;
+export type EventHistoryDailyRecord = typeof eventHistoryDaily.$inferSelect;
+export type NewEventHistoryDailyRecord = typeof eventHistoryDaily.$inferInsert;
