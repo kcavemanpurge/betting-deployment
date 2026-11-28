@@ -12,7 +12,17 @@ import {
   Timer,
   User,
   Sparkles,
+  MessageSquare,
+  Send,
+  Trash2,
 } from 'lucide-react';
+
+const EPHEMERAL_CHAT_PREFIX = 'sovereign_aviator_ephemeral_chat::';
+
+function getChatStorageKey(userId) {
+  const clean = (userId || '').trim();
+  return clean ? `${EPHEMERAL_CHAT_PREFIX}${clean}` : null;
+}
 
 function generateCrashPoint() {
   const r = Math.random();
@@ -46,6 +56,13 @@ export function AviatorEngine({
   const [isRunning, setIsRunning] = useState(false);
   const [settlementLog, setSettlementLog] = useState('');
 
+  // Ephemeral avatar session chat (no history when no user; deleted on exit)
+  const cleanUserId = (userId || '').trim();
+  const hasActiveUser = Boolean(cleanUserId);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatInput, setChatInput] = useState('');
+  const [chatMessages, setChatMessages] = useState([]);
+
   const hasSettledRef = useRef(false);
   const crashPointRef = useRef(2.0);
   const canvasRef = useRef(null);
@@ -63,6 +80,84 @@ export function AviatorEngine({
       setAccaBoostActive(true);
     }
   }, [boostMultiplier]);
+
+  // Load session chat only if a userId is present; never keep history without a user
+  useEffect(() => {
+    const key = getChatStorageKey(cleanUserId);
+    if (!key) {
+      setChatMessages([]);
+      return;
+    }
+    try {
+      const saved = sessionStorage.getItem(key);
+      setChatMessages(saved ? JSON.parse(saved) : []);
+    } catch {
+      setChatMessages([]);
+    }
+  }, [cleanUserId]);
+
+  useEffect(() => {
+    const key = getChatStorageKey(cleanUserId);
+    if (!key) return;
+    try {
+      sessionStorage.setItem(key, JSON.stringify(chatMessages));
+    } catch {
+      // Ignore storage errors
+    }
+  }, [cleanUserId, chatMessages]);
+
+  const clearEphemeralSessionChat = useCallback(() => {
+    const key = getChatStorageKey(cleanUserId);
+    setChatMessages([]);
+    if (key) {
+      try {
+        sessionStorage.removeItem(key);
+      } catch {
+        // Ignore storage errors
+      }
+    }
+  }, [cleanUserId]);
+
+  // Wipe chat history when user exits/unmounts or closes the terminal
+  useEffect(() => {
+    const key = getChatStorageKey(cleanUserId);
+    if (!key) return;
+
+    const purgeOnExit = () => {
+      try {
+        sessionStorage.removeItem(key);
+      } catch {
+        // Ignore storage errors
+      }
+    };
+
+    window.addEventListener('pagehide', purgeOnExit);
+    window.addEventListener('beforeunload', purgeOnExit);
+    return () => {
+      window.removeEventListener('pagehide', purgeOnExit);
+      window.removeEventListener('beforeunload', purgeOnExit);
+      purgeOnExit();
+    };
+  }, [cleanUserId]);
+
+  const handleSendChat = (e) => {
+    e.preventDefault();
+    if (!hasActiveUser) return;
+    const trimmed = chatInput.trim();
+    if (!trimmed) return;
+
+    setChatMessages((prev) => [
+      ...prev,
+      {
+        id: `m_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        sender: cleanUserId,
+        avatarBadge: cleanUserId.slice(0, 2).toUpperCase(),
+        text: trimmed,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      },
+    ]);
+    setChatInput('');
+  };
 
   const updateBalance = useCallback(
     (newBal) => {
@@ -158,7 +253,7 @@ export function AviatorEngine({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             sessionId,
-            userId,
+            userId: cleanUserId,
             wagerAmount: wagerStake,
             multiplier: finalMult,
             triggerType,
@@ -179,7 +274,7 @@ export function AviatorEngine({
         onSettlementComplete({
           id: settlementId,
           session_id: sessionId,
-          user_id: userId,
+          user_id: cleanUserId,
           wager_amount: wagerStake.toFixed(2),
           multiplier: finalMult.toFixed(2),
           payout_amount: payout.toFixed(2),
@@ -196,7 +291,7 @@ export function AviatorEngine({
         setIsBettingUnlocked(true);
       }
     },
-    [wagerStake, userId, balance, autoLoop, updateBalance, onSettlementComplete, startCalmDownCountdown]
+    [wagerStake, cleanUserId, balance, autoLoop, updateBalance, onSettlementComplete, startCalmDownCountdown]
   );
 
   useEffect(() => {
@@ -251,6 +346,7 @@ export function AviatorEngine({
     };
   }, [isRunning, targetOdds, autoLoop, executeSettlement, startCalmDownCountdown, clearCountdownTimer]);
 
+  // Sovereign dark/lime/gold vector plane + aim spot rendering
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -263,53 +359,99 @@ export function AviatorEngine({
 
       ctx.clearRect(0, 0, width, height);
 
+      // Subtle Sovereign grid lines
+      ctx.strokeStyle = 'rgba(163, 230, 53, 0.07)';
+      ctx.lineWidth = 1;
+      for (let gx = 40; gx < width; gx += 60) {
+        ctx.beginPath();
+        ctx.moveTo(gx, 0);
+        ctx.lineTo(gx, height);
+        ctx.stroke();
+      }
+      for (let gy = 32; gy < height; gy += 38) {
+        ctx.beginPath();
+        ctx.moveTo(0, gy);
+        ctx.lineTo(width, gy);
+        ctx.stroke();
+      }
+
       const multClamped = Math.min(10.0, multiplier);
       const progress = (multClamped - 1.0) / 9.0;
-      const currentX = width * Math.min(1.0, 0.1 + progress * 0.9);
-      const currentY = height - progress * (height - 35) - 20;
+      const currentX = width * Math.min(0.92, 0.1 + progress * 0.82);
+      const currentY = height - progress * (height - 42) - 22;
+
+      const strokeColor =
+        flightPhase === 'CRASHED'
+          ? '#f87171'
+          : flightPhase === 'LOCKED'
+            ? '#34d399'
+            : flightPhase === 'CALM_DOWN'
+              ? '#facc15'
+              : '#bef264';
+
+      const fillTop =
+        flightPhase === 'CRASHED'
+          ? 'rgba(248, 113, 113, 0.22)'
+          : flightPhase === 'LOCKED'
+            ? 'rgba(52, 211, 153, 0.22)'
+            : 'rgba(163, 230, 53, 0.22)';
 
       const grad = ctx.createLinearGradient(0, currentY, 0, height);
-      if (flightPhase === 'CRASHED') {
-        grad.addColorStop(0, 'rgba(244, 63, 94, 0.25)');
-        grad.addColorStop(1, 'rgba(244, 63, 94, 0.0)');
-      } else if (flightPhase === 'LOCKED') {
-        grad.addColorStop(0, 'rgba(16, 185, 129, 0.25)');
-        grad.addColorStop(1, 'rgba(16, 185, 129, 0.0)');
-      } else if (flightPhase === 'CALM_DOWN') {
-        grad.addColorStop(0, 'rgba(234, 179, 8, 0.20)');
-        grad.addColorStop(1, 'rgba(234, 179, 8, 0.0)');
-      } else {
-        grad.addColorStop(0, 'rgba(225, 29, 72, 0.22)');
-        grad.addColorStop(1, 'rgba(225, 29, 72, 0.0)');
-      }
+      grad.addColorStop(0, fillTop);
+      grad.addColorStop(1, 'rgba(7, 12, 9, 0.0)');
 
       ctx.fillStyle = grad;
       ctx.beginPath();
-      ctx.moveTo(0, height);
-      ctx.quadraticCurveTo(currentX * 0.5, height, currentX, currentY);
-      ctx.lineTo(currentX, height);
+      ctx.moveTo(16, height - 14);
+      ctx.quadraticCurveTo(currentX * 0.55, height - 14, currentX, currentY);
+      ctx.lineTo(currentX, height - 14);
       ctx.closePath();
       ctx.fill();
 
-      ctx.strokeStyle =
-        flightPhase === 'CRASHED'
-          ? '#f43f5e'
-          : flightPhase === 'LOCKED'
-            ? '#10b981'
-            : flightPhase === 'CALM_DOWN'
-              ? '#eab308'
-              : '#f43f5e';
+      // Trajectory curve
+      ctx.strokeStyle = strokeColor;
       ctx.lineWidth = 3;
       ctx.beginPath();
-      ctx.moveTo(0, height);
-      ctx.quadraticCurveTo(currentX * 0.5, height, currentX, currentY);
+      ctx.moveTo(16, height - 14);
+      ctx.quadraticCurveTo(currentX * 0.55, height - 14, currentX, currentY);
       ctx.stroke();
 
-      ctx.fillStyle =
-        flightPhase === 'CRASHED' ? '#f43f5e' : flightPhase === 'CALM_DOWN' ? '#facc15' : '#fda4af';
+      // Aim reticle + directional vector nose at tip
+      const angle = Math.atan2(currentY - (height - 14), currentX - 16) * 0.65;
+      ctx.save();
+      ctx.translate(currentX, currentY);
+
+      // Aim ring
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth = 1.5;
       ctx.beginPath();
-      ctx.arc(currentX, currentY, 4.5, 0, Math.PI * 2);
+      ctx.arc(0, 0, 11, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Aim crosshairs
+      ctx.beginPath();
+      ctx.moveTo(-15, 0);
+      ctx.lineTo(-7, 0);
+      ctx.moveTo(7, 0);
+      ctx.lineTo(15, 0);
+      ctx.moveTo(0, -15);
+      ctx.lineTo(0, -7);
+      ctx.moveTo(0, 7);
+      ctx.lineTo(0, 15);
+      ctx.stroke();
+
+      // Plane / vector chevron at aim point
+      ctx.rotate(angle);
+      ctx.fillStyle = strokeColor;
+      ctx.beginPath();
+      ctx.moveTo(9, 0);
+      ctx.lineTo(-5, -5);
+      ctx.lineTo(-2, 0);
+      ctx.lineTo(-5, 5);
+      ctx.closePath();
       ctx.fill();
+
+      ctx.restore();
 
       if (isRunning) {
         animId = requestAnimationFrame(render);
@@ -329,31 +471,114 @@ export function AviatorEngine({
   };
 
   return (
-    <div className="w-full max-w-2xl bg-slate-950 text-rose-400 font-mono p-6 border border-slate-800 rounded-lg shadow-2xl">
-      <div className="flex justify-between items-center pb-4 mb-4 border-b border-slate-800">
+    <div className="w-full max-w-2xl bg-[#070c09] text-lime-300 font-mono p-6 border border-lime-500/25 rounded-xl shadow-2xl">
+      <div className="flex justify-between items-center pb-4 mb-4 border-b border-lime-500/15">
         <div>
           <div className="flex items-center gap-2">
-            <Plane className="w-5 h-5 text-rose-400 transform -rotate-45" />
+            <Plane className="w-5 h-5 text-lime-400 transform -rotate-45" />
             <h2 className="text-xl font-bold text-white tracking-widest">// AVIATOR ENGINE</h2>
           </div>
-          <p className="text-xs text-slate-400 mt-0.5">AUTONOMOUS FLIGHT &amp; SETTLEMENT</p>
+          <p className="text-xs text-lime-200/60 mt-0.5">SOVEREIGN VECTOR PLANE &amp; SETTLEMENT</p>
         </div>
-        <div className="text-right">
-          <div className="text-xs text-slate-400">BALANCE</div>
-          <div className="text-2xl font-bold text-emerald-400">${balance.toFixed(2)}</div>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setChatOpen((prev) => !prev)}
+            className="px-2.5 py-1.5 rounded bg-[#0d1711] hover:bg-[#14231a] text-lime-300 border border-lime-500/30 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+          >
+            <MessageSquare className="w-3.5 h-3.5" />
+            <span>SESSION CHAT ({hasActiveUser ? chatMessages.length : 0})</span>
+          </button>
+          <div className="text-right">
+            <div className="text-xs text-lime-200/60">BALANCE</div>
+            <div className="text-2xl font-bold text-emerald-400">${balance.toFixed(2)}</div>
+          </div>
         </div>
       </div>
 
+      {/* Ephemeral Avatar Session Chat (Zero history without user; wiped on exit) */}
+      {chatOpen && (
+        <div className="mb-4 p-3.5 rounded-lg bg-[#0b130e] border border-lime-500/25 space-y-3">
+          <div className="flex items-center justify-between border-b border-lime-500/15 pb-2">
+            <div className="flex items-center gap-2 text-xs font-bold text-lime-300">
+              <span className="w-6 h-6 rounded-full bg-lime-400 text-[#070c09] flex items-center justify-center font-black text-[11px]">
+                {hasActiveUser ? cleanUserId.slice(0, 2).toUpperCase() : '--'}
+              </span>
+              <span>
+                {hasActiveUser
+                  ? `ACTIVE AVATAR SESSION: ${cleanUserId}`
+                  : 'NO ACTIVE USER — SESSION HISTORY DISABLED'}
+              </span>
+            </div>
+            {hasActiveUser && chatMessages.length > 0 && (
+              <button
+                type="button"
+                onClick={clearEphemeralSessionChat}
+                className="text-[11px] text-amber-300 hover:text-amber-200 flex items-center gap-1 cursor-pointer"
+              >
+                <Trash2 className="w-3 h-3" /> Wipe Session
+              </button>
+            )}
+          </div>
+
+          {!hasActiveUser ? (
+            <div className="text-xs text-lime-200/50 py-3 text-center">
+              Sign in or set an active user ID to participate in the live avatar conversation. No history is stored without a user.
+            </div>
+          ) : (
+            <>
+              <div className="max-h-36 overflow-y-auto space-y-1.5 pr-1 text-xs">
+                {chatMessages.length === 0 ? (
+                  <div className="text-lime-200/45 py-2 text-center">
+                    Session active. Messages stay only for this session and delete on terminal exit.
+                  </div>
+                ) : (
+                  chatMessages.map((m) => (
+                    <div
+                      key={m.id}
+                      className="p-2 rounded bg-[#070c09] border border-lime-500/15 flex items-start justify-between gap-2"
+                    >
+                      <div>
+                        <span className="text-lime-400 font-bold mr-1.5">[{m.avatarBadge}]</span>
+                        <span className="text-white">{m.text}</span>
+                      </div>
+                      <span className="text-[10px] text-lime-200/40 shrink-0">{m.time}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <form onSubmit={handleSendChat} className="flex gap-2">
+                <input
+                  type="text"
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  placeholder="Message over current avatar..."
+                  className="flex-1 bg-[#070c09] border border-lime-500/25 rounded px-3 py-1.5 text-xs text-white focus:border-lime-400 outline-none"
+                />
+                <button
+                  type="submit"
+                  className="px-3 py-1.5 rounded bg-lime-400 hover:bg-lime-300 text-[#070c09] font-extrabold text-xs flex items-center gap-1 cursor-pointer"
+                >
+                  <Send className="w-3.5 h-3.5" /> Send
+                </button>
+              </form>
+            </>
+          )}
+        </div>
+      )}
+
       {balance <= 0 && (
-        <div className="mb-4 p-3 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 text-xs flex items-center justify-between gap-3">
+        <div className="mb-4 p-3 rounded-lg bg-[#0d1711] border border-lime-500/20 text-lime-100/80 text-xs flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
-            <span>Balance is $0.00. Open Account to manage wallet or wait for monthly $100 disbursement.</span>
+            <span>Balance is $0.00. Open Account to manage wallet or check eligibility for discretionary monthly allocation.</span>
           </div>
           {onOpenProfile && (
             <button
+              type="button"
               onClick={onOpenProfile}
-              className="px-3 py-1 rounded bg-slate-800 hover:bg-slate-700 text-white font-bold text-[11px] uppercase transition cursor-pointer whitespace-nowrap"
+              className="px-3 py-1 rounded bg-[#14231a] hover:bg-[#1c3124] text-lime-300 border border-lime-500/30 font-bold text-[11px] uppercase transition cursor-pointer whitespace-nowrap"
             >
               ACCOUNT
             </button>
@@ -362,24 +587,25 @@ export function AviatorEngine({
       )}
 
       {accaBoostActive && (
-        <div className="mb-3 p-2 rounded bg-slate-900 border border-rose-500/40 text-rose-200 text-xs flex items-center justify-between">
+        <div className="mb-3 p-2 rounded bg-[#0d1711] border border-lime-400/40 text-lime-200 text-xs flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-rose-400" />
+            <Sparkles className="w-4 h-4 text-lime-400" />
             <span>
               ACCUMULATOR BOOST: Target multiplier set to{' '}
               <strong className="text-white">{targetOdds.toFixed(2)}x</strong>
             </span>
           </div>
           <button
+            type="button"
             onClick={() => setAccaBoostActive(false)}
-            className="text-[10px] text-slate-400 hover:text-white underline cursor-pointer"
+            className="text-[10px] text-lime-200/70 hover:text-white underline cursor-pointer"
           >
             Reset
           </button>
         </div>
       )}
 
-      <div className="mb-4 p-2.5 rounded border flex flex-wrap items-center justify-between gap-2 text-xs bg-slate-900/90 border-slate-800">
+      <div className="mb-4 p-2.5 rounded border flex flex-wrap items-center justify-between gap-2 text-xs bg-[#0c150f] border-lime-500/20">
         <div className="flex items-center gap-2">
           {isBettingUnlocked ? (
             <span className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-emerald-950/80 border border-emerald-500/40 text-emerald-400 font-bold">
@@ -387,47 +613,40 @@ export function AviatorEngine({
               BETTING UNLOCKED
             </span>
           ) : (
-            <span className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-rose-950/80 border border-rose-500/40 text-rose-400 font-bold">
+            <span className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-amber-950/80 border border-amber-400/40 text-amber-300 font-bold">
               <Lock className="w-3.5 h-3.5" />
               FLIGHT IN PROGRESS
             </span>
           )}
-          <span className="text-slate-400 text-[11px]">
+          <span className="text-lime-200/70 text-[11px]">
             STAKE: <strong className="text-white">${wagerStake.toFixed(2)}</strong> @{' '}
-            <strong className="text-rose-400">{targetOdds.toFixed(2)}x</strong>
+            <strong className="text-lime-300">{targetOdds.toFixed(2)}x</strong>
           </span>
         </div>
 
         <div className="flex items-center gap-1.5">
-          <span className="text-slate-400 text-[10px] font-bold flex items-center gap-1">
+          <span className="text-lime-200/60 text-[10px] font-bold flex items-center gap-1">
             <Clock className="w-3 h-3 text-amber-400" /> COUNTDOWN:
           </span>
-          <button
-            onClick={() => setCountdownDuration(5)}
-            disabled={flightPhase === 'FLYING'}
-            className={`px-2 py-0.5 text-[10px] rounded font-bold cursor-pointer transition ${
-              countdownDuration === 5
-                ? 'bg-amber-500 text-black'
-                : 'bg-slate-800 text-slate-400 hover:text-white'
-            }`}
-          >
-            5s
-          </button>
-          <button
-            onClick={() => setCountdownDuration(3)}
-            disabled={flightPhase === 'FLYING'}
-            className={`px-2 py-0.5 text-[10px] rounded font-bold cursor-pointer transition ${
-              countdownDuration === 3
-                ? 'bg-amber-500 text-black'
-                : 'bg-slate-800 text-slate-400 hover:text-white'
-            }`}
-          >
-            3s
-          </button>
+          {[5, 3].map((sec) => (
+            <button
+              key={sec}
+              type="button"
+              onClick={() => setCountdownDuration(sec)}
+              disabled={flightPhase === 'FLYING'}
+              className={`px-2 py-0.5 text-[10px] rounded font-bold cursor-pointer transition ${
+                countdownDuration === sec
+                  ? 'bg-amber-400 text-[#070c09]'
+                  : 'bg-[#132018] text-lime-200/70 hover:text-white'
+              }`}
+            >
+              {sec}s
+            </button>
+          ))}
         </div>
       </div>
 
-      <div className="relative h-48 bg-slate-900 border border-slate-800 rounded mb-4 flex items-center justify-center overflow-hidden shadow-inner">
+      <div className="relative h-48 bg-[#0b130e] border border-lime-500/25 rounded mb-4 flex items-center justify-center overflow-hidden shadow-inner">
         <canvas
           ref={canvasRef}
           width={580}
@@ -448,25 +667,25 @@ export function AviatorEngine({
         ) : (
           <div className="relative z-10 text-5xl font-extrabold text-white tracking-wider drop-shadow-md select-none">
             {multiplier.toFixed(2)}
-            <span className="text-rose-400">x</span>
+            <span className="text-lime-400">x</span>
           </div>
         )}
 
         {isRunning && (
-          <div className="absolute top-3 left-3 text-xs text-rose-300 animate-pulse flex items-center gap-1.5 z-10 bg-slate-950/80 px-2.5 py-1 rounded border border-rose-500/20">
-            <span className="w-2 h-2 rounded-full bg-rose-400 animate-ping"></span>
-            IN FLIGHT
+          <div className="absolute top-3 left-3 text-xs text-lime-300 animate-pulse flex items-center gap-1.5 z-10 bg-[#070c09]/85 px-2.5 py-1 rounded border border-lime-400/30">
+            <span className="w-2 h-2 rounded-full bg-lime-400 animate-ping"></span>
+            AIM LOCK ACTIVE
           </div>
         )}
 
         {flightPhase === 'LOCKED' && !isRunning && (
-          <div className="absolute bottom-3 left-3 text-xs text-emerald-400 z-10 bg-slate-950/80 px-2.5 py-1 rounded border border-emerald-500/30 flex items-center gap-1">
+          <div className="absolute bottom-3 left-3 text-xs text-emerald-400 z-10 bg-[#070c09]/85 px-2.5 py-1 rounded border border-emerald-500/30 flex items-center gap-1">
             <CheckCircle className="w-3.5 h-3.5" /> SETTLED
           </div>
         )}
 
         {flightPhase === 'CRASHED' && !isRunning && (
-          <div className="absolute bottom-3 left-3 text-xs text-rose-400 z-10 bg-slate-950/80 px-2.5 py-1 rounded border border-rose-500/30 flex items-center gap-1">
+          <div className="absolute bottom-3 left-3 text-xs text-rose-400 z-10 bg-[#070c09]/85 px-2.5 py-1 rounded border border-rose-500/30 flex items-center gap-1">
             <AlertTriangle className="w-3.5 h-3.5" /> CRASHED
           </div>
         )}
@@ -475,17 +694,18 @@ export function AviatorEngine({
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
         <div>
           <div className="flex justify-between items-center mb-1">
-            <label className="text-xs text-slate-400 font-bold">AUTO-LOCK ODDS</label>
+            <label className="text-xs text-lime-200/70 font-bold">AUTO-LOCK ODDS</label>
             <div className="flex gap-1">
               {[1.5, 2.0, 3.0, 5.0].map((odds) => (
                 <button
                   key={odds}
+                  type="button"
                   onClick={() => setTargetOdds(odds)}
                   disabled={flightPhase === 'FLYING'}
                   className={`px-1.5 py-0.5 text-[10px] rounded cursor-pointer ${
                     targetOdds === odds
-                      ? 'bg-rose-500 text-white font-bold'
-                      : 'bg-slate-800 text-slate-400 hover:text-white'
+                      ? 'bg-lime-400 text-[#070c09] font-bold'
+                      : 'bg-[#132018] text-lime-200/70 hover:text-white'
                   }`}
                 >
                   {odds.toFixed(2)}x
@@ -500,52 +720,53 @@ export function AviatorEngine({
             value={targetOdds}
             disabled={flightPhase === 'FLYING'}
             onChange={(e) => setTargetOdds(parseFloat(e.target.value) || 1.1)}
-            className="w-full bg-slate-900 border border-slate-800 p-2 text-white font-bold rounded text-sm focus:border-rose-400 outline-none"
+            className="w-full bg-[#0b130e] border border-lime-500/25 p-2 text-white font-bold rounded text-sm focus:border-lime-400 outline-none"
           />
         </div>
 
         <div>
-          <label className="text-xs text-slate-400 block mb-1 font-bold">WAGER STAKE</label>
+          <label className="text-xs text-lime-200/70 block mb-1 font-bold">WAGER STAKE</label>
           <input
             type="number"
             min="1"
             value={wagerStake}
             disabled={flightPhase === 'FLYING'}
             onChange={(e) => setWagerStake(parseFloat(e.target.value) || 1)}
-            className="w-full bg-slate-900 border border-slate-800 p-2 text-white font-bold rounded text-sm focus:border-rose-400 outline-none"
+            className="w-full bg-[#0b130e] border border-lime-500/25 p-2 text-white font-bold rounded text-sm focus:border-lime-400 outline-none"
           />
         </div>
       </div>
 
-      <div className="flex items-center justify-between mb-4 bg-slate-900/60 p-2.5 rounded border border-slate-800 text-xs">
-        <span className="text-slate-400 text-[11px] font-bold">QUICK STAKE:</span>
+      <div className="flex items-center justify-between mb-4 bg-[#0b130e] p-2.5 rounded border border-lime-500/20 text-xs">
+        <span className="text-lime-200/70 text-[11px] font-bold">QUICK STAKE:</span>
         <div className="flex gap-1.5">
           {[10, 25, 50, 100, 250].map((amt) => (
             <button
               key={amt}
+              type="button"
               onClick={() => setWagerStake(amt)}
               disabled={flightPhase === 'FLYING'}
               className={`px-2.5 py-1 text-xs rounded font-bold transition cursor-pointer ${
                 wagerStake === amt
-                  ? 'bg-rose-500 text-white'
-                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                  ? 'bg-lime-400 text-[#070c09]'
+                  : 'bg-[#132018] text-lime-200/80 hover:bg-[#1a2c21]'
               }`}
             >
               ${amt}
             </button>
           ))}
         </div>
-        <div className="flex items-center gap-1.5 ml-2 border-l border-slate-800 pl-2">
+        <div className="flex items-center gap-1.5 ml-2 border-l border-lime-500/20 pl-2">
           <input
             type="checkbox"
             id="autoloop-check"
             checked={autoLoop}
             onChange={(e) => setAutoLoop(e.target.checked)}
-            className="cursor-pointer accent-rose-500"
+            className="cursor-pointer accent-lime-400"
           />
           <label
             htmlFor="autoloop-check"
-            className="text-[10px] text-slate-300 cursor-pointer font-bold select-none"
+            className="text-[10px] text-lime-200/80 cursor-pointer font-bold select-none"
           >
             AUTO-LOOP
           </label>
@@ -555,24 +776,27 @@ export function AviatorEngine({
       <div className="mb-4 space-y-2">
         {flightPhase === 'FLYING' ? (
           <button
+            type="button"
             onClick={handleInstantAutoSettle}
-            className="w-full py-4 bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold text-base tracking-widest uppercase rounded shadow-lg shadow-emerald-500/20 transition cursor-pointer active:scale-[0.99] flex items-center justify-center gap-2"
+            className="w-full py-4 bg-lime-400 hover:bg-lime-300 text-[#070c09] font-extrabold text-base tracking-widest uppercase rounded shadow-lg shadow-lime-500/20 transition cursor-pointer active:scale-[0.99] flex items-center justify-center gap-2"
           >
-            <Zap className="w-5 h-5 text-black" />
+            <Zap className="w-5 h-5 text-[#070c09]" />
             CASHOUT NOW [${(wagerStake * multiplier).toFixed(2)} @ {multiplier.toFixed(2)}x]
           </button>
         ) : flightPhase === 'CALM_DOWN' ? (
           <div className="grid grid-cols-2 gap-2">
             <button
+              type="button"
               onClick={launchFlight}
-              className="py-3.5 bg-rose-500 hover:bg-rose-400 text-white font-extrabold text-sm tracking-wider uppercase rounded transition cursor-pointer flex items-center justify-center gap-2"
+              className="py-3.5 bg-lime-400 hover:bg-lime-300 text-[#070c09] font-extrabold text-sm tracking-wider uppercase rounded transition cursor-pointer flex items-center justify-center gap-2"
             >
               <Plane className="w-4 h-4 transform -rotate-45" />
               TAKEOFF NOW ({calmDownRemaining}s)
             </button>
             <button
+              type="button"
               onClick={cancelCountdown}
-              className="py-3.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-sm tracking-wider uppercase rounded border border-slate-700 transition cursor-pointer"
+              className="py-3.5 bg-[#132018] hover:bg-[#1a2c21] text-lime-200 font-bold text-sm tracking-wider uppercase rounded border border-lime-500/25 transition cursor-pointer"
             >
               CANCEL
             </button>
@@ -580,15 +804,17 @@ export function AviatorEngine({
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <button
+              type="button"
               onClick={() => startCalmDownCountdown(countdownDuration)}
-              className="sm:col-span-2 py-4 bg-amber-500 hover:bg-amber-400 text-black font-extrabold text-sm tracking-wider uppercase rounded transition cursor-pointer active:scale-[0.99] flex items-center justify-center gap-2"
+              className="sm:col-span-2 py-4 bg-amber-400 hover:bg-amber-300 text-[#070c09] font-extrabold text-sm tracking-wider uppercase rounded transition cursor-pointer active:scale-[0.99] flex items-center justify-center gap-2"
             >
               <Clock className="w-4 h-4" />
               START {countdownDuration}s COUNTDOWN (${wagerStake.toFixed(2)})
             </button>
             <button
+              type="button"
               onClick={launchFlight}
-              className="py-4 bg-rose-600 hover:bg-rose-500 text-white font-extrabold text-xs tracking-wider uppercase rounded transition cursor-pointer"
+              className="py-4 bg-lime-400 hover:bg-lime-300 text-[#070c09] font-extrabold text-xs tracking-wider uppercase rounded transition cursor-pointer"
             >
               TAKEOFF
             </button>
@@ -597,21 +823,22 @@ export function AviatorEngine({
       </div>
 
       {settlementLog && (
-        <div className="mb-4 p-2.5 bg-slate-900 border border-slate-800 text-emerald-400 text-xs rounded flex items-center justify-between">
+        <div className="mb-4 p-2.5 bg-[#0b130e] border border-lime-500/25 text-emerald-400 text-xs rounded flex items-center justify-between">
           <span>{settlementLog}</span>
-          <span className="text-[10px] text-slate-500">LEDGER</span>
+          <span className="text-[10px] text-lime-200/50">LEDGER</span>
         </div>
       )}
 
-      <div className="pt-4 border-t border-slate-800/80 flex items-center justify-between text-xs">
+      <div className="pt-4 border-t border-lime-500/15 flex items-center justify-between text-xs">
         <div className="flex items-center gap-2">
           <ShieldCheck className="w-4 h-4 text-emerald-400" />
-          <span className="text-slate-400 text-[11px]">WITHDRAWALS &amp; ACCOUNT</span>
+          <span className="text-lime-200/70 text-[11px]">WITHDRAWALS &amp; ACCOUNT</span>
         </div>
         {onOpenProfile && (
           <button
+            type="button"
             onClick={onOpenProfile}
-            className="px-3 py-1.5 rounded bg-slate-900 hover:bg-slate-800 text-white border border-slate-700 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+            className="px-3 py-1.5 rounded bg-[#0d1711] hover:bg-[#14231a] text-white border border-lime-500/30 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
           >
             <User className="w-3.5 h-3.5" />
             ACCOUNT &amp; WITHDRAWALS
@@ -619,12 +846,9 @@ export function AviatorEngine({
         )}
       </div>
 
-      <div className="mt-3 pt-2 border-t border-slate-900 text-[11px] text-slate-500">
-        Monthly $100 disbursement applies on the scheduled monthly cycle — wait for monthly $100 disbursement.
+      <div className="mt-3 pt-2 border-t border-lime-500/10 text-[11px] text-lime-200/50">
+        Discretionary Monthly Allocation Policy: Any monthly reward grant is discretionary and governed by ledger standing and scheduled cycle review.
       </div>
     </div>
   );
 }
-
-export const Aviator = AviatorEngine;
-export default AviatorEngine;
