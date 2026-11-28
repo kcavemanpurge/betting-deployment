@@ -4,6 +4,7 @@ import { getDatabase } from '@netlify/database';
 
 const DEFAULT_SETTLEMENT_WALLET = '4AB1u2f16V1Vno2fzN4GTN41MTSWjW4E3ViN4bg3qA4m';
 const SUPPORTED_RAILS = new Set(['SOLANA', 'SMART_CHAIN', 'HOT_WALLET']);
+const MIN_WITHDRAWAL_AMOUNT = 1.0;
 
 let pool;
 
@@ -159,11 +160,15 @@ export async function handler(event) {
       };
     }
 
-    if (!Number.isFinite(numAmount) || numAmount <= 0) {
+    if (!Number.isFinite(numAmount) || numAmount < MIN_WITHDRAWAL_AMOUNT) {
       return {
         statusCode: 400,
         headers: corsHeaders,
-        body: JSON.stringify({ ok: false, error: 'INVALID_WITHDRAWAL_AMOUNT' }),
+        body: JSON.stringify({
+          ok: false,
+          error: 'INVALID_WITHDRAWAL_AMOUNT',
+          minAmount: MIN_WITHDRAWAL_AMOUNT,
+        }),
       };
     }
 
