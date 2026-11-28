@@ -25,7 +25,7 @@ export const betSettlements = pgTable(
     wagerAmount: numeric("wager_amount", { precision: 12, scale: 2 }).notNull(),
     multiplier: numeric("multiplier", { precision: 8, scale: 4 }).notNull(),
     payoutAmount: numeric("payout_amount", { precision: 12, scale: 2 })
-      .generatedAlwaysAs(sql`${pgTable} ? wager_amount * multiplier : wager_amount * multiplier`)
+      .generatedAlwaysAs(sql`wager_amount * multiplier`)
       .$type<string>(),
     status: varchar("status", { length: 20 }).notNull().default("SETTLED"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
@@ -44,7 +44,7 @@ export const financialLedger = pgTable(
     amount: numeric("amount", { precision: 14, scale: 4 }).notNull(),
     hotWalletAddress: text("hot_wallet_address"),
     gasFeePaid: numeric("gas_fee_paid", { precision: 14, scale: 8 }).default("0"),
-    txHash: text("tx_hash").notNull(),
+    txHash: text("tx_hash").notNull().unique(),
     status: varchar("status", { length: 20 }).notNull().default("CONFIRMED"),
     metadata: jsonb("metadata").default({}),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
@@ -74,6 +74,7 @@ export const userBalances = pgTable(
     userId: varchar("user_id", { length: 64 }).primaryKey(),
     promoBalance: numeric("promo_balance", { precision: 14, scale: 4 }).notNull().default("0"),
     profitBalance: numeric("profit_balance", { precision: 14, scale: 4 }).notNull().default("0"),
+    lockedProfitBalance: numeric("locked_profit_balance", { precision: 14, scale: 4 }).notNull().default("0"),
     dailySpendUsed: numeric("daily_spend_used", { precision: 14, scale: 4 }).notNull().default("0"),
     spendDate: date("spend_date").notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
@@ -160,7 +161,10 @@ export const footballMatches2627 = pgTable(
     awayGoals: integer("away_goals").notNull(),
     oddsWallet: text("odds_wallet").notNull().default("4AB1u2f16V1Vno2fzN4GTN41MTSWjW4E3ViN4bg3qA4m"),
     recordedAt: timestamp("recorded_at", { withTimezone: true }).notNull().defaultNow(),
-  }
+  },
+  (table) => [
+    index("idx_football_matches_league").on(table.leagueCode, table.recordedAt),
+  ]
 );
 
 export type BetSettlement = typeof betSettlements.$inferSelect;
