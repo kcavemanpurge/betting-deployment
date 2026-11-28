@@ -1,57 +1,43 @@
 # Sovereign Betting & Financial Settlement Platform
 
-A high-performance sovereign betting engine, 5-league virtual sports simulator, and low-latency financial settlement platform built on Netlify Edge CDN, Netlify Serverless Functions, PostgreSQL (Neon / Netlify Database), and Stripe Issuing.
+A Vite + React frontend for the Sovereign Bets interface, Aviator flight simulation, vector canvas, virtual football simulator, sports odds portal, and account UI. The repository also contains Netlify Functions and database assets from the original Netlify deployment.
 
-## System Architecture
+## Frontend entrypoints and display ownership
 
-| Component | Target Hosting / Environment | Tooling & Build Command |
-|---|---|---|
-| **Frontend Simulation** | Netlify Edge CDN | Vite + React + HTML5 Canvas (`npm run build`) |
-| **Serverless Functions** | Netlify Functions (`netlify/functions/`) | Node.js / TypeScript Serverless Engine |
-| **Financial & Bet Ledger** | PostgreSQL Managed Database | Drizzle ORM + Connection Pooler |
-| **Card Issuing & Wallet** | Stripe API Rails | Virtual Visa/MasterCard Provisioning |
-| **Mobile Deployment Node** | Termux / AlmaLinux Container | Git CLI + Netlify CLI (`deploy.sh`) |
+- The Render site root is built from `index.html` → `src/main.jsx` → `src/App.jsx`.
+- `src/App.jsx` chooses the Aviator interface (`src/components/AviatorEngine.jsx`) or vector interface (`src/components/BettingCanvas.jsx`) and the football/odds views.
+- `src/index.css` is the canonical global stylesheet and imports Tailwind CSS. Components imported by `src/App.jsx` are the active React UI.
+- Files under `public/` are standalone static pages/assets copied into `dist/`; they do not replace the React app at `/`.
+- `src/components/src/index.css` was an incorrectly nested, unused file containing JavaScript rather than CSS. It is not part of the build; the canonical stylesheet remains `src/index.css`.
 
-## Key Capabilities
+## Render static-site deployment
 
-1. **Deterministic HTML5 Aviator & Flight Arena**:
-   - Zero-latency Canvas trajectory graph with dynamic scanlines, acceleration curve, and real-time multiplier calculations.
-   - Procedural Web Audio API sound generator with zero external asset dependencies (synthesized sine-wave climb, dual-harmonic settlement chord, white-noise glitch on vector collapse).
-   - Dual-vector betting (`VECTOR 01` manual cashout & `VECTOR 02` auto-cashout triggers).
+`render.yaml` configures a Render Static Site:
 
-2. **5-League Virtual Football Simulator (`virtualFiveLeagueSim.ts`)**:
-   - Seeded, deterministic multi-league match sequence generator independent of external odds APIs.
-   - Team rating matrix (`sim_rating`), scoreline evaluator (`home_goals` vs. `away_goals`), and automated standings updater across `football_leagues_2627` and `football_teams_2627`.
+- Build: `npm ci && npm run build`
+- Publish directory: `dist`
+- The Vite build emits the React app at `/` and copies standalone `public/*.html` pages to their corresponding paths. There is no catch-all rewrite, so real static pages and assets can be served at their own URLs.
 
-3. **Stripe Issuing & Vault Financial Ledger**:
-   - Real-time virtual card provisioning and 3DS verification handling (`stripe-wallet.js`, `stripe-webhook.js`).
-   - Unified balance breakdown tracking `promo_balance` ($1,000 grant allocation) vs. `profit_balance` (eligible settled winnings).
-   - Solana / Smart Chain withdrawal ledger with explicit `user_wallet` capture, idempotency keys, and `PENDING_MANUAL_APPROVAL` audit queue.
+Connect `kcavemanpurge/betting-deployment` to Render and deploy the Blueprint from `render.yaml`. The Render dashboard's build and publish settings should match the values above.
 
-4. **Atomic Backend Settlement Engine (`netlify/functions/settle.js`)**:
-   - Server-side WORM (Write Once, Read Many) settlement gatekeeper.
-   - Strict `FOR UPDATE` PostgreSQL transaction locks enforcing single-session idempotency and eliminating double-settlement vectors.
-   - Auto-computed payout execution updating `bet_settlements`, `financial_ledger`, and `user_balances`.
+## Important backend boundary
 
-5. **Deploy-Time Database Migrations**:
-   - Pre-compiled Drizzle ORM migrations under `netlify/database/migrations/`.
-   - Dual-version schema migrations (`create_bet_settlements` and `add_unified_settlement_and_football`).
-   - Indexes on `(user_id, status)` and `(user_id, entry_type)` for sub-millisecond query performance.
+Render Static Sites host only generated frontend files. They do **not** run the repository's Netlify Functions, database migrations, or PostgreSQL services. The React and standalone pages currently call endpoints such as `/.netlify/functions/settle`, `/.netlify/functions/round`, `/.netlify/functions/live-odds`, and `/.netlify/functions/withdraw`. Those API-backed features will not work on Render unless the functions remain deployed on Netlify and the frontend is configured to call that backend, or the backend is migrated to a service that supports server-side functions. Never treat client-side simulation or local storage as a secure, authoritative financial ledger.
 
-## Local Development
+## Local development
 
 ```bash
-# Install dependencies
-npm install
-
-# Start development server
+npm ci
 npm run dev
+npm run build
+npm run preview
+```
 
-# Generate database migrations via Drizzle Kit
-npm run db:generate
+## Original Netlify backend assets
 
-# Execute database migrations
-npm run db:migrate
+- `netlify/functions/`: serverless API functions
+- `netlify/database/migrations/`: database migration files
+- `db/` and `schema.sql`: database schema sources
+- `server/services/`: settlement-service code
 
-# Mirror repository across accounts
-npm run migrate:repo
+These assets are retained for the existing Netlify architecture; they are not executed by the Render static-site build.
