@@ -1,36 +1,42 @@
-# Sovereign Betting Deployment // Edge Settlement Engine
+# Sovereign Betting & Financial Settlement Platform
 
-A high-performance sovereign betting simulation and low-latency edge settlement platform built on Netlify Edge CDN, Netlify Functions, and PostgreSQL (Netlify Database / Drizzle ORM).
+A high-performance sovereign betting engine, 5-league virtual sports simulator, and low-latency financial settlement platform built on Netlify Edge CDN, Netlify Serverless Functions, PostgreSQL (Neon / Netlify Database), and Stripe Issuing.
 
 ## System Architecture
 
 | Component | Target Hosting / Environment | Tooling & Build Command |
 |---|---|---|
 | **Frontend Simulation** | Netlify Edge CDN | Vite + React + HTML5 Canvas (`npm run build`) |
-| **Edge Backend / API** | Netlify Functions (`netlify/functions/settle.js`) | Node.js Edge Runtime (Serverless) |
-| **Immutable Ledger** | PostgreSQL Managed Database | Drizzle ORM + Connection Pooler |
-| **Mobile Deployment Node** | Termux / Mobile Shell | Git CLI + Netlify CLI (`deploy.sh`) |
+| **Serverless Functions** | Netlify Functions (`netlify/functions/`) | Node.js / TypeScript Serverless Engine |
+| **Financial & Bet Ledger** | PostgreSQL Managed Database | Drizzle ORM + Connection Pooler |
+| **Card Issuing & Wallet** | Stripe API Rails | Virtual Visa/MasterCard Provisioning |
+| **Mobile Deployment Node** | Termux / AlmaLinux Container | Git CLI + Netlify CLI (`deploy.sh`) |
 
 ## Key Capabilities
 
-1. **Deterministic HTML5 Vector Simulation Engine**:
+1. **Deterministic HTML5 Aviator & Flight Arena**:
    - Zero-latency Canvas trajectory graph with dynamic scanlines, acceleration curve, and real-time multiplier calculations.
    - Procedural Web Audio API sound generator with zero external asset dependencies (synthesized sine-wave climb, dual-harmonic settlement chord, white-noise glitch on vector collapse).
-   - Configurable stakes ($10, $25, $50, $100, $250, or custom) and automated cashout triggers.
+   - Dual-vector betting (`VECTOR 01` manual cashout & `VECTOR 02` auto-cashout triggers).
 
-2. **Atomic Edge Settlement Handler (`/.netlify/functions/settle`)**:
-   - WORM (Write Once, Read Many) settlement gatekeeper.
-   - Strict `FOR UPDATE` transaction locks enforcing single-session idempotency and eliminating double-settlement vectors.
-   - Auto-computed generated payout column (`payout_amount = wager_amount * multiplier`) at the database layer.
+2. **5-League Virtual Football Simulator (`virtualFiveLeagueSim.ts`)**:
+   - Seeded, deterministic multi-league match sequence generator independent of external odds APIs.
+   - Team rating matrix (`sim_rating`), scoreline evaluator (`home_goals` vs. `away_goals`), and automated standings updater across `football_leagues_2627` and `football_teams_2627`.
 
-3. **PostgreSQL Immutable Settlement Ledger**:
-   - Drizzle ORM schema defined in `db/schema.ts`.
-   - Pre-compiled deploy-time SQL migrations in `netlify/database/migrations/`.
-   - Indexing on `(user_id, status)` for sub-millisecond query execution.
-   - Standalone `schema.sql` at repository root for raw console execution.
+3. **Stripe Issuing & Vault Financial Ledger**:
+   - Real-time virtual card provisioning and 3DS verification handling (`stripe-wallet.js`, `stripe-webhook.js`).
+   - Unified balance breakdown tracking `promo_balance` ($1,000 grant allocation) vs. `profit_balance` (eligible settled winnings).
+   - Solana / Smart Chain withdrawal ledger with explicit `user_wallet` capture, idempotency keys, and `PENDING_MANUAL_APPROVAL` audit queue.
 
-4. **Mobile Terminal Node Dispatch**:
-   - Automated `deploy.sh` script for Termux / mobile git staging and push to Netlify.
+4. **Atomic Backend Settlement Engine (`netlify/functions/settle.js`)**:
+   - Server-side WORM (Write Once, Read Many) settlement gatekeeper.
+   - Strict `FOR UPDATE` PostgreSQL transaction locks enforcing single-session idempotency and eliminating double-settlement vectors.
+   - Auto-computed payout execution updating `bet_settlements`, `financial_ledger`, and `user_balances`.
+
+5. **Deploy-Time Database Migrations**:
+   - Pre-compiled Drizzle ORM migrations under `netlify/database/migrations/`.
+   - Dual-version schema migrations (`create_bet_settlements` and `add_unified_settlement_and_football`).
+   - Indexes on `(user_id, status)` and `(user_id, entry_type)` for sub-millisecond query performance.
 
 ## Local Development
 
@@ -41,48 +47,11 @@ npm install
 # Start development server
 npm run dev
 
-# Generate database migrations
+# Generate database migrations via Drizzle Kit
 npm run db:generate
 
-# Migrate repository to a new GitHub account
+# Execute database migrations
+npm run db:migrate
+
+# Mirror repository across accounts
 npm run migrate:repo
-```
-
-## Repository Migration
-
-To mirror all commit history, branches, and tags to a new GitHub account:
-
-1. Create a fresh, empty repository in your target GitHub account (do not initialize with README, `.gitignore`, or license).
-2. Execute the helper script:
-   ```bash
-   npm run migrate:repo
-   # or directly with parameters:
-   ./scripts/migrate-repo.sh <OLD_ACCOUNT> <NEW_ACCOUNT>
-   ```
-3. Re-link the repository in your Netlify site settings under **Project Settings > Build & Deploy > Continuous Deployment > Repository**.
-
-## Directory Structure
-
-```
-├── db/
-│   ├── index.ts        # Drizzle ORM Netlify Database client
-│   └── schema.ts       # Database table definitions
-├── netlify/
-│   ├── database/
-│   │   └── migrations/ # Automated deploy-time migrations
-│   └── functions/
-│       └── settle.js   # WORM edge settlement endpoint
-├── src/
-│   ├── components/
-│   │   └── BettingCanvas.jsx # HTML5 Canvas trajectory & bet engine
-│   ├── utils/
-│   │   └── audio.js    # Web Audio API procedural sound synthesizer
-│   ├── App.jsx         # Sovereign terminal dashboard & ledger view
-│   ├── index.css       # Tailwind CSS & CRT vector glow styling
-│   └── main.jsx        # Application root mount
-├── deploy.sh           # Termux mobile deployment script
-├── drizzle.config.ts   # Drizzle Kit configuration
-├── netlify.toml        # Netlify build & functions configuration
-├── schema.sql          # Direct PostgreSQL initialization script
-└── vite.config.js      # Vite build & Tailwind configuration
-```
